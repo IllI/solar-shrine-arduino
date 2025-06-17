@@ -1,0 +1,124 @@
+Arduino Integration Guide for Po Tolo V2.5.toe
+
+STEP 1: Add Serial Communication Nodes
+======================================
+
+1. In your existing Po Tolo V2.5.toe project, create a new Base COMP called "arduino_interface"
+
+2. Inside the arduino_interface COMP, add these nodes:
+
+   a) Serial DAT:
+      - Name: "serial_arduino"
+      - Port: Set to your Arduino's COM port (e.g., COM3, COM4)
+      - Baud Rate: 9600
+      - Active: On
+      - Timeout: 1000
+
+   b) DAT Execute:
+      - Name: "serial_execute" 
+      - DAT: Point to "serial_arduino"
+      - Execute: "On Table Change"
+
+   c) Text DAT:
+      - Name: "json_parser"
+      - This will contain the parsing script
+
+   d) Null CHOP:
+      - Name: "sensor_values"
+      - This will output the parsed sensor data
+
+STEP 2: Add the JSON Parsing Script
+===================================
+
+In the "json_parser" Text DAT, add this code:
+
+```python
+import json
+
+def onTableChange(dat):
+    """Called when serial data arrives"""
+    if dat.numRows > 0:
+        # Get the latest serial data
+        serial_data = dat[dat.numRows-1, 0].val
+        
+        try:
+            # Parse JSON
+            data = json.loads(serial_data)
+            
+            # Get the sensor values CHOP
+            sensor_chop = op('../sensor_values')
+            
+            # Update CHOP channels
+            sensor_chop.par.chan1name = 'left_distance'
+            sensor_chop.par.chan1value = data.get('left', 0)
+            
+            sensor_chop.par.chan2name = 'right_distance' 
+            sensor_chop.par.chan2value = data.get('right', 0)
+            
+            sensor_chop.par.chan3name = 'hands_detected'
+            sensor_chop.par.chan3value = 1 if data.get('hands_detected', False) else 0
+            
+            # Optional: Print for debugging
+            print(f"Sensors - Left: {data.get('left')}, Right: {data.get('right')}, Hands: {data.get('hands_detected')}")
+            
+        except json.JSONDecodeError:
+            print(f"Invalid JSON: {serial_data}")
+        except Exception as e:
+            print(f"Error parsing sensor data: {e}")
+```
+
+STEP 3: Configure the DAT Execute
+=================================
+
+In the "serial_execute" DAT Execute:
+- Set "Execute" to "On Table Change"
+- Set "DAT" to point to "serial_arduino"
+- In the script section, add:
+
+```python
+# Reference the JSON parser
+op('../json_parser').run()
+```
+
+STEP 4: Set up the Null CHOP
+============================
+
+In the "sensor_values" Null CHOP:
+- Set "Channels" to 3
+- Channel names will be set automatically by the script:
+  - chan1: left_distance
+  - chan2: right_distance  
+  - chan3: hands_detected
+
+STEP 5: Connect to Your Existing Effects
+========================================
+
+Now you can reference the sensor data in your existing movie effects:
+
+Example uses:
+- op('arduino_interface/sensor_values')['left_distance']
+- op('arduino_interface/sensor_values')['right_distance'] 
+- op('arduino_interface/sensor_values')['hands_detected']
+
+You can use these values to:
+- Control movie playback speed
+- Adjust opacity/brightness
+- Trigger different video clips
+- Control geometric transformations
+
+STEP 6: Testing the Setup
+=========================
+
+1. Upload the sensors_json_output.ino to your Arduino
+2. Open TouchDesigner and your Po Tolo project
+3. Check the Serial DAT is receiving data
+4. Verify the Null CHOP shows changing values
+5. Connect sensor values to your existing movie effects
+
+TROUBLESHOOTING
+===============
+
+- If no data appears: Check COM port and baud rate
+- If JSON errors: Verify Arduino is sending proper JSON format
+- If values don't update: Check DAT Execute is properly configured
+- Use the Textport (Alt+T) to see debug messages 

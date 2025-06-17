@@ -1,0 +1,72 @@
+TouchDesigner Network Template for Arduino Integration
+
+NETWORK STRUCTURE:
+==================
+
+/project1/
+├── moviefilein1 (existing)
+├── arduino_interface/ (NEW BASE COMP)
+│   ├── serial_arduino (Serial DAT)
+│   ├── serial_execute (DAT Execute) 
+│   ├── sensor_parser (Text DAT)
+│   └── sensor_values (Null CHOP)
+└── effects_controller/ (NEW BASE COMP)
+    ├── movie_control (Python CHOP)
+    └── effect_mixer (Composite TOP)
+
+DETAILED NODE CONFIGURATIONS:
+=============================
+
+1. arduino_interface/serial_arduino (Serial DAT):
+   - Port: COM3 (adjust for your system)
+   - Baud Rate: 9600
+   - Active: On
+   - Timeout: 1000
+   - Max Lines: 100
+
+2. arduino_interface/serial_execute (DAT Execute):
+   - DAT: serial_arduino
+   - Execute: On Table Change
+   - Script: [Copy from movie_integration_parser.py]
+
+3. arduino_interface/sensor_parser (Text DAT):
+   - Contains the parsing functions
+   - [Copy entire movie_integration_parser.py content here]
+
+4. arduino_interface/sensor_values (Null CHOP):
+   - Channels: 5
+   - Channel Names: left_distance, right_distance, hands_detected, left_norm, right_norm
+   - Default Values: 0, 0, 0, 0, 0
+
+5. effects_controller/movie_control (Python CHOP):
+   - Script: References arduino_interface/sensor_values
+   - Outputs control channels for movie effects
+
+CONNECTIONS:
+============
+
+serial_arduino → serial_execute (automatic via DAT parameter)
+sensor_values → movie_control (CHOP reference)
+movie_control → moviefilein1 (parameter expressions)
+
+PARAMETER EXPRESSIONS:
+=====================
+
+In your moviefilein1 node, set these expressions:
+
+Speed: op('arduino_interface/sensor_values')['left_norm'] * 2 + 0.5
+Play: op('arduino_interface/sensor_values')['hands_detected'] > 0.5
+
+QUICK SETUP CHECKLIST:
+======================
+
+□ Create arduino_interface Base COMP
+□ Add Serial DAT inside it
+□ Add DAT Execute inside it  
+□ Add Text DAT with parsing script
+□ Add Null CHOP for output values
+□ Configure Serial DAT port and baud rate
+□ Copy parsing script to DAT Execute
+□ Test with Arduino connected
+□ Add parameter expressions to movie node
+□ Test sensor control of movie playback 
