@@ -1,0 +1,44 @@
+TouchDesigner Project Setup Instructions
+
+1. Create a new TouchDesigner project and save it as 'solar_shrine.toe'
+
+2. Create the following network structure:
+   /project1
+     /sensor_parser
+       - Serial DAT (named 'serial1')
+       - Python CHOP (named 'python1')
+     /effects
+       - Base COMP (named 'left_effect')
+       - Base COMP (named 'right_effect')
+       - Base COMP (named 'hands_effect')
+     /null1 (for parameter storage)
+
+3. Configure the Serial DAT:
+   - Set the correct COM port
+   - Set baud rate to 9600
+   - Enable 'Active'
+   - Set 'Callback DAT' to 'python1'
+
+4. Configure the Python CHOP:
+   - Copy the contents of 'scripts/sensor_parser.py' into the Python CHOP
+   - Set 'Execute' to 'On Frame End'
+
+5. Create custom parameters on the parent component:
+   - left_distance (float)
+   - right_distance (float)
+   - hands_detected (toggle)
+
+6. In each effect COMP, create:
+   - left_effect: intensity parameter
+   - right_effect: intensity parameter
+   - hands_effect: active parameter
+
+7. Connect the parameters:
+   - Map the sensor values to the effect parameters
+   - Use the null1 CHOP to store and distribute the values
+
+8. Test the setup:
+   - Upload the Arduino code
+   - Open the Serial Monitor to verify JSON output
+   - Check that TouchDesigner receives and parses the data
+   - Verify that the effects respond to sensor input 
