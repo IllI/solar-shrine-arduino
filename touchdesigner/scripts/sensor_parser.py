@@ -1,26 +1,15 @@
-"""
-Sensor Parser for Solar Shrine
-This script parses JSON data from Arduino sensors and makes it available to TouchDesigner
-"""
-
+# me - this DAT
+#
+# dat - the DAT that received the data
+# rowIndex - the row number the data was placed into
+# message - an ascii representation of the data
+#           Unprintable characters and unicode characters will
+#           not be preserved. Use the 'byteData' parameter to get
+#           the raw bytes that were sent.
+# byteData - byte array of the data received
 import json
 
-def parse_sensor_data(serial_data):
-    """
-    Parse JSON data from Arduino serial input
-    Returns a dictionary with sensor values or None if parsing fails
-    """
-    try:
-        data = json.loads(serial_data)
-        return {
-            'left_distance': data['left'],
-            'right_distance': data['right'],
-            'hands_detected': data['hands_detected']
-        }
-    except:
-        return None
-
-def onReceive(dat):
+def onReceive(dat, rowIndex, message, byteData):
     """
     Callback function for Serial DAT
     """
@@ -40,6 +29,22 @@ def onReceive(dat):
         # You can add more processing here
         # For example, mapping the values to visual effects
         map_sensor_to_effects(sensor_data)
+        return
+
+def parse_sensor_data(serial_data):
+    """
+    Parse JSON data from Arduino serial input
+    Returns a dictionary with sensor values or None if parsing fails
+    """
+    try:
+        data = json.loads(serial_data)
+        return {
+            'left_distance': data['left'],
+            'right_distance': data['right'],
+            'hands_detected': data['hands_detected']
+        }
+    except:
+        return None
 
 def map_sensor_to_effects(sensor_data):
     """
@@ -58,3 +63,5 @@ def map_sensor_to_effects(sensor_data):
     
     # Map hands detected to effect
     hands_effect.par.active = sensor_data['hands_detected'] 
+
+	
