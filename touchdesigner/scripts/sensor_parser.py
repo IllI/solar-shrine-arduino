@@ -20,7 +20,7 @@ def parse_sensor_data(serial_data):
     except:
         return None
 
-def onSerialData(dat):
+def onReceive(dat):
     """
     Callback function for Serial DAT
     """

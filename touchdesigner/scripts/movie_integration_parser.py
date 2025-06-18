@@ -30,10 +30,10 @@ def parse_arduino_data(serial_dat):
     except:
         return None
 
-# Example usage in DAT Execute callback:
-def onTableChange(dat):
+# Example usage in Serial DAT callback:
+def onReceive(dat):
     """
-    Put this function in your DAT Execute that monitors the Serial DAT
+    Put this function in your Serial DAT callback
     """
     data = parse_arduino_data(dat)
     
