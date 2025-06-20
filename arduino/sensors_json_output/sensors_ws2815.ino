@@ -1,5 +1,7 @@
 /*
  * Dual Ultrasonic Sensor Reader with JSON Output and FastLED Control
+ * Optimized for WS2815 LED strips - 83 LEDs in Human Hand Configuration
+ * 6 strips mapped to fingers and palm
  */
 
 #include <ArduinoJson.h>
@@ -11,13 +13,24 @@ const int echoPin1 = 10;
 const int trigPin2 = 5;
 const int echoPin2 = 6;
 
-// LED strip configuration
+// LED strip configuration for WS2815 - Human Hand Layout
 #define LED_PIN 3
-#define NUM_LEDS 20        // Adjust this to match your LED strip length
-#define LED_TYPE WS2815    // WS2815 LED type
-#define COLOR_ORDER RGB    // WS2815 strips typically use RGB order
+#define NUM_LEDS 83       // Total LEDs across all 6 strips
+#define LED_TYPE WS2815   // WS2815 LED type (12V addressable LEDs)
+#define COLOR_ORDER GRB   // WS2815 strips typically use GRB order
 
 CRGB leds[NUM_LEDS];
+
+// Hand LED Mapping - 6 strips across human hand
+// Adjust these ranges based on your actual strip layout
+struct HandMapping {
+  int thumb_start = 0;     int thumb_end = 12;      // Strip 1: Thumb (13 LEDs)
+  int index_start = 13;    int index_end = 27;      // Strip 2: Index finger (15 LEDs)  
+  int middle_start = 28;   int middle_end = 43;     // Strip 3: Middle finger (16 LEDs)
+  int ring_start = 44;     int ring_end = 57;       // Strip 4: Ring finger (14 LEDs)
+  int pinky_start = 58;    int pinky_end = 69;      // Strip 5: Pinky (12 LEDs)
+  int palm_start = 70;     int palm_end = 82;       // Strip 6: Palm (13 LEDs)
+} hand;
 
 // Range constants (in cm)
 const float MIN_RANGE = 1.0;
@@ -33,11 +46,15 @@ void setup() {
   pinMode(trigPin2, OUTPUT);
   pinMode(echoPin2, INPUT);
   
-  // FastLED setup
+  // FastLED setup optimized for WS2815
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
-  FastLED.setBrightness(100);  // Set brightness (0-255)
+  FastLED.setBrightness(120);  // Reduced for 83 LEDs
+  FastLED.setMaxPowerInVoltsAndMilliamps(12, 2000);  // Increased power for more LEDs
   
   // Initialize all LEDs to off
+  FastLED.clear();
+  FastLED.show();
+  delay(100);
   fill_solid(leds, NUM_LEDS, CRGB::Black);
   FastLED.show();
 }
@@ -52,6 +69,101 @@ float readDistance(int trigPin, int echoPin) {
   float duration = pulseIn(echoPin, HIGH);
   return (duration * 0.0343) / 2;
 }
+
+void fillHandSection(int start, int end, CRGB color) {
+  for(int i = start; i <= end; i++) {
+    leds[i] = color;
+  }
+}
+
+void createHandWaveEffect(float leftDistance, float rightDistance, bool handsDetected) {
+  if (!handsDetected) {
+    // Turn all LEDs off when no hands detected
+    fill_solid(leds, NUM_LEDS, CRGB::Black);
+    return;
+  }
+  
+  // Calculate which hand is closer and effect intensity
+  float difference = leftDistance - rightDistance;  // Positive = left closer, Negative = right closer
+  float intensity = (leftDistance + rightDistance) / (2 * MAX_RANGE);  // Overall proximity
+  intensity = 1.0 - constrain(intensity, 0.0, 1.0);  // Invert: closer = higher intensity
+  
+  // Base colors
+  CRGB leftColor = CRGB::Red;
+  CRGB rightColor = CRGB::Blue;
+  CRGB palmColor = CRGB::Purple;
+  
+  // Apply intensity to colors
+  leftColor.fadeToBlackBy(255 * (1.0 - intensity));
+  rightColor.fadeToBlackBy(255 * (1.0 - intensity));
+  palmColor.fadeToBlackBy(255 * (1.0 - intensity));
+  
+  if (abs(difference) < 3) {
+    // Hands roughly equal distance - light up entire hand in purple
+    fill_solid(leds, NUM_LEDS, palmColor);
+    
+  } else if (difference > 0) {
+    // Left hand closer - emphasize left side fingers
+    fillHandSection(hand.thumb_start, hand.thumb_end, leftColor);
+    fillHandSection(hand.index_start, hand.index_end, leftColor);
+    fillHandSection(hand.middle_start, hand.middle_end, blend(leftColor, palmColor, 128));
+    fillHandSection(hand.ring_start, hand.ring_end, blend(palmColor, rightColor, 192));
+    fillHandSection(hand.pinky_start, hand.pinky_end, rightColor.fadeToBlackBy(128));
+    fillHandSection(hand.palm_start, hand.palm_end, palmColor);
+    
+  } else {
+    // Right hand closer - emphasize right side fingers  
+    fillHandSection(hand.thumb_start, hand.thumb_end, leftColor.fadeToBlackBy(128));
+    fillHandSection(hand.index_start, hand.index_end, blend(palmColor, leftColor, 192));
+    fillHandSection(hand.middle_start, hand.middle_end, blend(rightColor, palmColor, 128));
+    fillHandSection(hand.ring_start, hand.ring_end, rightColor);
+    fillHandSection(hand.pinky_start, hand.pinky_end, rightColor);
+    fillHandSection(hand.palm_start, hand.palm_end, palmColor);
+  }
+}
+
+void createFingerWaveEffect(float leftDistance, float rightDistance, bool handsDetected) {
+  if (!handsDetected) {
+    fill_solid(leds, NUM_LEDS, CRGB::Black);
+    return;
+  }
+  
+  // Create traveling wave effect across fingers based on sensor difference
+  float wavePosition = map(leftDistance - rightDistance, -MAX_RANGE, MAX_RANGE, 0, 5);
+  wavePosition = constrain(wavePosition, 0, 5);
+  
+  // Clear all LEDs first
+  fill_solid(leds, NUM_LEDS, CRGB::Black);
+  
+  // Light up fingers based on wave position
+  CRGB waveColor = CHSV(map(leftDistance + rightDistance, 0, 2 * MAX_RANGE, 0, 255), 255, 255);
+  
+  int fingerIndex = (int)wavePosition;
+  switch(fingerIndex) {
+    case 0: fillHandSection(hand.thumb_start, hand.thumb_end, waveColor); break;
+    case 1: fillHandSection(hand.index_start, hand.index_end, waveColor); break;
+    case 2: fillHandSection(hand.middle_start, hand.middle_end, waveColor); break;
+    case 3: fillHandSection(hand.ring_start, hand.ring_end, waveColor); break;
+    case 4: fillHandSection(hand.pinky_start, hand.pinky_end, waveColor); break;
+    case 5: fillHandSection(hand.palm_start, hand.palm_end, waveColor); break;
+  }
+  
+  // Add fading effect to adjacent fingers
+  float fadeAmount = (wavePosition - fingerIndex) * 255;
+  CRGB fadeColor = waveColor;
+  fadeColor.fadeToBlackBy(255 - fadeAmount);
+  
+  if (fingerIndex > 0) {
+    switch(fingerIndex - 1) {
+      case 0: fillHandSection(hand.thumb_start, hand.thumb_end, fadeColor); break;
+      case 1: fillHandSection(hand.index_start, hand.index_end, fadeColor); break;
+      case 2: fillHandSection(hand.middle_start, hand.middle_end, fadeColor); break;
+      case 3: fillHandSection(hand.ring_start, hand.ring_end, fadeColor); break;
+      case 4: fillHandSection(hand.pinky_start, hand.pinky_end, fadeColor); break;
+    }
+  }
+}
+
 void loop() {
   // Read sensors
   float distance1 = readDistance(trigPin1, echoPin1);
@@ -62,35 +174,21 @@ void loop() {
   bool inRange2 = (distance2 >= MIN_RANGE && distance2 <= MAX_RANGE);
   bool hands_detected = inRange1 && inRange2;
   
-  // Control LED strip based on which hand is closer
-  if (hands_detected) {
-    // Calculate the difference between left and right sensor distances
-    float difference = distance1 - distance2;  // Positive = left closer, Negative = right closer
-    
-    // Normalize the difference to 0-255 range
-    // Maximum possible difference is around 19cm (MAX_RANGE - MIN_RANGE)
-    float maxDifference = MAX_RANGE - MIN_RANGE;
-    
-    // Map difference to 0-255: 
-    // Left much closer = 0 (red), Right much closer = 255 (blue), Equal distances = 127 (purple)
-    int colorValue = map(constrain((difference + maxDifference) * 100, 0, 2 * maxDifference * 100), 
-                        0, 2 * maxDifference * 100, 0, 255);
-    
-    // Create color based on which hand is closer
-    // Red = Left hand closer (distance1 < distance2)
-    // Blue = Right hand closer (distance2 < distance1)
-    // Purple = Equal distances
-    CRGB stripColor = CRGB(255 - colorValue, 0, colorValue);
-    
-    // Fill entire strip with the calculated color
-    fill_solid(leds, NUM_LEDS, stripColor);
-  } else {
-    // Turn all LEDs off when no hands detected
-    fill_solid(leds, NUM_LEDS, CRGB::Black);
-  }
-  FastLED.show();  // Update the LED strip
+  // Choose effect type based on distance (you can modify this logic)
+  float avgDistance = (distance1 + distance2) / 2.0;
   
-  // Create JSON document
+  if (avgDistance < 10.0) {
+    // Close interaction - use hand wave effect
+    createHandWaveEffect(distance1, distance2, hands_detected);
+  } else {
+    // Further interaction - use finger wave effect
+    createFingerWaveEffect(distance1, distance2, hands_detected);
+  }
+  
+  // Update the LED strip
+  FastLED.show();
+  
+  // Create JSON document for TouchDesigner
   StaticJsonDocument<200> doc;
   
   // Add values to JSON

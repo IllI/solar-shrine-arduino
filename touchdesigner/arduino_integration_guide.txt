@@ -1,124 +1,161 @@
-Arduino Integration Guide for Po Tolo V2.5.toe
+Arduino Integration Guide for Po Tolo V2.5.toe - UPDATED 2025
 
-STEP 1: Add Serial Communication Nodes
-======================================
+MODERN APPROACH: Serial DAT → Select DAT → JSON DAT
+==================================================
+
+This guide uses the latest TouchDesigner best practices for Arduino integration.
+No complex scripting required - pure procedural data flow eliminates cook dependency loops.
+
+STEP 1: Create Arduino Interface Component
+==========================================
 
 1. In your existing Po Tolo V2.5.toe project, create a new Base COMP called "arduino_interface"
 
-2. Inside the arduino_interface COMP, add these nodes:
+2. Inside the arduino_interface COMP, add these nodes in sequence:
 
    a) Serial DAT:
       - Name: "serial_arduino"
-      - Port: Set to your Arduino's COM port (e.g., COM3, COM4)
+      - Port: Set to your Arduino's COM port (e.g., COM3, COM4, /dev/cu.usbserial)
       - Baud Rate: 9600
       - Active: On
       - Timeout: 1000
+      - Row/Callback Format: One Per Line
+      - IMPORTANT: Leave all callbacks EMPTY (no Python scripts)
 
-   b) DAT Execute:
-      - Name: "serial_execute" 
-      - DAT: Point to "serial_arduino"
-      - Execute: "On Table Change"
-
-   c) Text DAT:
-      - Name: "json_parser"
-      - This will contain the parsing script
-
-   d) Null CHOP:
-      - Name: "sensor_values"
-      - This will output the parsed sensor data
-
-STEP 2: Add the JSON Parsing Script
-===================================
-
-In the "json_parser" Text DAT, add this code:
-
-```python
-import json
-
-def onTableChange(dat):
-    """Called when serial data arrives"""
-    if dat.numRows > 0:
-        # Get the latest serial data
-        serial_data = dat[dat.numRows-1, 0].val
+   b) Select DAT:
+      - Name: "select_latest"
+      - Connect: serial_arduino → select_latest
+      - Configure EXACTLY as follows:
         
-        try:
-            # Parse JSON
-            data = json.loads(serial_data)
-            
-            # Get the sensor values CHOP
-            sensor_chop = op('../sensor_values')
-            
-            # Update CHOP channels
-            sensor_chop.par.chan1name = 'left_distance'
-            sensor_chop.par.chan1value = data.get('left', 0)
-            
-            sensor_chop.par.chan2name = 'right_distance' 
-            sensor_chop.par.chan2value = data.get('right', 0)
-            
-            sensor_chop.par.chan3name = 'hands_detected'
-            sensor_chop.par.chan3value = 1 if data.get('hands_detected', False) else 0
-            
-            # Optional: Print for debugging
-            print(f"Sensors - Left: {data.get('left')}, Right: {data.get('right')}, Hands: {data.get('hands_detected')}")
-            
-        except json.JSONDecodeError:
-            print(f"Invalid JSON: {serial_data}")
-        except Exception as e:
-            print(f"Error parsing sensor data: {e}")
-```
+        ROWS Section:
+        - Include First Row: OFF
+        - Select Rows: by Index
+        - Start Row Index: me.inputs[0].numRows-1 (gets latest row)
+        - End Row Index: me.inputs[0].numRows-1 (same as start)
+        - Row Select Values: + (enabled)
+        - Row Select Condition: me.inputs[0].numRows-1
+        - From Column: 0
+        
+        COLUMNS Section:
+        - Include First Col: OFF
+        - Select Cols: by Index
+        - Start Col Index: 0
+        - End Col Index: 0
+        - Col Select Values: + (enabled)
+        - Col Select Condition: (leave empty)
+        - From Row: 0
+        
+        OUTPUT:
+        - Output: Input Data
 
-STEP 3: Configure the DAT Execute
+   c) JSON DAT:
+      - Name: "json_sensor"
+      - Connect: select_latest → json_sensor
+      - Filter: $ (gets all JSON data)
+      - Output: Expression
+
+STEP 2: Arduino Code Setup
+==========================
+
+Your Arduino should send JSON in this format:
+{"left":27,"right":189,"hands_detected":false}
+
+Use the sensors_ws2815.ino code which already outputs the correct format.
+
+STEP 3: Access Sensor Data in Effects
+=====================================
+
+Now you can directly use sensor data in your movie effects with simple expressions:
+
+Basic Access:
+- Left distance: op('arduino_interface/json_sensor').result['left']
+- Right distance: op('arduino_interface/json_sensor').result['right']
+- Hands detected: op('arduino_interface/json_sensor').result['hands_detected']
+
+STEP 4: Create Distortion Effects
 =================================
 
-In the "serial_execute" DAT Execute:
-- Set "Execute" to "On Table Change"
-- Set "DAT" to point to "serial_arduino"
-- In the script section, add:
+Example: Simple Transform Distortion
+Add a Transform TOP to your movie content:
 
-```python
-# Reference the JSON parser
-op('../json_parser').run()
-```
+Scale X:
+1.0 + (op('arduino_interface/json_sensor').result['left'] / 200.0) if op('arduino_interface/json_sensor').result['hands_detected'] else 1.0
 
-STEP 4: Set up the Null CHOP
-============================
+Scale Y:
+1.0 + (op('arduino_interface/json_sensor').result['right'] / 200.0) if op('arduino_interface/json_sensor').result['hands_detected'] else 1.0
 
-In the "sensor_values" Null CHOP:
-- Set "Channels" to 3
-- Channel names will be set automatically by the script:
-  - chan1: left_distance
-  - chan2: right_distance  
-  - chan3: hands_detected
+Rotate Z:
+(op('arduino_interface/json_sensor').result['left'] - op('arduino_interface/json_sensor').result['right']) * 0.5 if op('arduino_interface/json_sensor').result['hands_detected'] else 0
 
-STEP 5: Connect to Your Existing Effects
-========================================
+STEP 5: Advanced Effect Examples
+===============================
 
-Now you can reference the sensor data in your existing movie effects:
+Movie Playback Control:
+- Speed: 1.0 + (op('arduino_interface/json_sensor').result['left'] / 100.0) if op('arduino_interface/json_sensor').result['hands_detected'] else 1.0
 
-Example uses:
-- op('arduino_interface/sensor_values')['left_distance']
-- op('arduino_interface/sensor_values')['right_distance'] 
-- op('arduino_interface/sensor_values')['hands_detected']
+Opacity Control:
+- Opacity: op('arduino_interface/json_sensor').result['hands_detected']
 
-You can use these values to:
-- Control movie playback speed
-- Adjust opacity/brightness
-- Trigger different video clips
-- Control geometric transformations
+Color Mixing:
+- Mix: op('arduino_interface/json_sensor').result['right'] / 200.0 if op('arduino_interface/json_sensor').result['hands_detected'] else 0.5
 
-STEP 6: Testing the Setup
+Displacement Effect:
+Create Noise TOP → Displace TOP
+- Displace X: op('arduino_interface/json_sensor').result['left'] / 50.0 if op('arduino_interface/json_sensor').result['hands_detected'] else 0
+- Displace Y: op('arduino_interface/json_sensor').result['right'] / 50.0 if op('arduino_interface/json_sensor').result['hands_detected'] else 0
+
+STEP 6: Conditional Effects Pattern
+==================================
+
+All effects should use this pattern to only activate when hands are detected:
+
+BASIC CONDITIONAL:
+your_value if op('arduino_interface/json_sensor').result['hands_detected'] else default_value
+
+MATHEMATICAL GATING:
+your_value * op('arduino_interface/json_sensor').result['hands_detected']
+
+EXAMPLE EFFECT CHAIN:
+[Movie File In] → [Transform TOP] → [Displace TOP] → [Output]
+
+Where Transform and Displace are controlled by sensor data only when hands are detected.
+
+STEP 7: Testing the Setup
 =========================
 
-1. Upload the sensors_json_output.ino to your Arduino
+1. Upload sensors_ws2815.ino to your Arduino with WS2815 LED strip
 2. Open TouchDesigner and your Po Tolo project
-3. Check the Serial DAT is receiving data
-4. Verify the Null CHOP shows changing values
-5. Connect sensor values to your existing movie effects
+3. Check Serial DAT shows incoming JSON data
+4. Verify Select DAT shows single latest JSON line
+5. Confirm JSON DAT parses without errors
+6. Test effects respond to sensor movement only when hands detected
 
-TROUBLESHOOTING
-===============
+STEP 8: Troubleshooting
+======================
 
-- If no data appears: Check COM port and baud rate
-- If JSON errors: Verify Arduino is sending proper JSON format
-- If values don't update: Check DAT Execute is properly configured
-- Use the Textport (Alt+T) to see debug messages 
+- No data in Serial DAT: Check COM port, baud rate, and Arduino power
+- "Failed to parse DAT as JSON" error: Check Select DAT configuration
+- Cook dependency loop errors: Ensure NO callbacks in Serial DAT
+- Values not updating: Verify Select DAT uses me.inputs[0].numRows-1
+- LED strip not working: Check WS2815 power supply and data pin connection
+
+DATA FLOW DIAGRAM:
+=================
+
+Arduino → Serial DAT → Select DAT → JSON DAT → Movie Effects
+            ↓              ↓            ↓
+         Raw JSON     Latest Line   Parsed Data
+                      Only         Available
+
+ADVANTAGES OF THIS APPROACH:
+===========================
+
+✅ No cook dependency loops
+✅ No complex Python scripting
+✅ Visual data flow you can debug
+✅ Real-time performance optimized
+✅ Easy to modify and extend
+✅ Works with TouchDesigner's procedural nature
+
+This modern approach follows TouchDesigner best practices and eliminates
+the common issues with callback-based JSON parsing. 
