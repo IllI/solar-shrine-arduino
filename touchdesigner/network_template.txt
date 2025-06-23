@@ -7,7 +7,6 @@ NETWORK STRUCTURE:
 ├── moviefilein1 (existing)
 ├── arduino_interface/ (NEW BASE COMP)
 │   ├── serial_arduino (Serial DAT)
-│   ├── serial_execute (DAT Execute) 
 │   ├── sensor_parser (Text DAT)
 │   └── sensor_values (Null CHOP)
 └── effects_controller/ (NEW BASE COMP)
@@ -24,16 +23,11 @@ DETAILED NODE CONFIGURATIONS:
    - Timeout: 1000
    - Max Lines: 100
 
-2. arduino_interface/serial_execute (DAT Execute):
-   - DAT: serial_arduino
-   - Execute: On Table Change
-   - Script: [Copy from movie_integration_parser.py]
-
-3. arduino_interface/sensor_parser (Text DAT):
+2. arduino_interface/sensor_parser (Text DAT):
    - Contains the parsing functions
    - [Copy entire movie_integration_parser.py content here]
 
-4. arduino_interface/sensor_values (Null CHOP):
+3. arduino_interface/sensor_values (Null CHOP):
    - Channels: 5
    - Channel Names: left_distance, right_distance, hands_detected, left_norm, right_norm
    - Default Values: 0, 0, 0, 0, 0
@@ -45,7 +39,7 @@ DETAILED NODE CONFIGURATIONS:
 CONNECTIONS:
 ============
 
-serial_arduino → serial_execute (automatic via DAT parameter)
+serial_arduino → sensor_parser (via Callback DAT parameter)
 sensor_values → movie_control (CHOP reference)
 movie_control → moviefilein1 (parameter expressions)
 
@@ -62,11 +56,10 @@ QUICK SETUP CHECKLIST:
 
 □ Create arduino_interface Base COMP
 □ Add Serial DAT inside it
-□ Add DAT Execute inside it  
-□ Add Text DAT with parsing script
+□ Add Text DAT with parsing script (onReceive function)
 □ Add Null CHOP for output values
 □ Configure Serial DAT port and baud rate
-□ Copy parsing script to DAT Execute
+□ Set Serial DAT Callback DAT to point to Text DAT
 □ Test with Arduino connected
 □ Add parameter expressions to movie node
 □ Test sensor control of movie playback 

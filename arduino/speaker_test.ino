@@ -97,12 +97,53 @@ void playHandsDetectedBeep() {
 }
 
 void loop() {
-  // CONSTANT VIBRATION TEST - Generate continuous tone for testing
-  // Comment out this section once you confirm the speaker works
+  // ENHANCED SPEAKER TEST - Multiple frequencies and patterns
+  Serial.println("Testing speaker - you should hear/feel vibration...");
+  
+  // Test 1: Low frequency (100Hz) - should feel vibration
+  Serial.println("Test 1: 100Hz");
+  for (int i = 0; i < 1000; i++) {
+    digitalWrite(speakerPin, HIGH);
+    delayMicroseconds(5000);  // 100Hz = 10000us period / 2
+    digitalWrite(speakerPin, LOW);
+    delayMicroseconds(5000);
+  }
+  delay(1000);
+  
+  // Test 2: Mid frequency (1kHz) - should hear tone
+  Serial.println("Test 2: 1kHz");
+  for (int i = 0; i < 1000; i++) {
+    digitalWrite(speakerPin, HIGH);
+    delayMicroseconds(500);   // 1kHz = 1000us period / 2
+    digitalWrite(speakerPin, LOW);
+    delayMicroseconds(500);
+  }
+  delay(1000);
+  
+  // Test 3: High frequency (2kHz) - should hear higher pitch
+  Serial.println("Test 3: 2kHz");
+  for (int i = 0; i < 1000; i++) {
+    digitalWrite(speakerPin, HIGH);
+    delayMicroseconds(250);   // 2kHz = 500us period / 2
+    digitalWrite(speakerPin, LOW);
+    delayMicroseconds(250);
+  }
+  delay(1000);
+  
+  // Test 4: Check if pin is actually changing
+  Serial.println("Test 4: Pin state check");
   digitalWrite(speakerPin, HIGH);
-  delayMicroseconds(500);  // 1kHz frequency (1000 microseconds period / 2)
+  Serial.print("Pin 11 HIGH, voltage should be ~5V. Reading: ");
+  Serial.println(digitalRead(speakerPin));
+  delay(2000);
+  
   digitalWrite(speakerPin, LOW);
-  delayMicroseconds(500);
+  Serial.print("Pin 11 LOW, voltage should be ~0V. Reading: ");
+  Serial.println(digitalRead(speakerPin));
+  delay(2000);
+  
+  Serial.println("=== Test cycle complete ===");
+  delay(3000);
   
   // Uncomment the sensor code below once speaker test is complete
   /*
