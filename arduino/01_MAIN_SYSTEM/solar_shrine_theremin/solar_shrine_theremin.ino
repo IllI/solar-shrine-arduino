@@ -4,9 +4,9 @@
  * Enhanced with Volume3 library for perfect volume control and smooth audio
  * 
  * Hardware:
- * - 2x HC-SR04 ultrasonic sensors (pins 5,6,9,10)
+ * - 2x HC-SR04 ultrasonic sensors (pins 5,6,9,10) - ORIGINAL HARDWARE PINS
  * - WS2812B/WS2815 LED strip (pin 3)
- * - Audio output on pins 9,10 (Volume3 default) or speaker directly to pin 9
+ * - Audio output on pin 11 (avoiding Volume3 conflict with sensor pins 9,10)
  * - Optional: 10k potentiometer on A0 for volume control
  * 
  * Libraries Required:
@@ -18,10 +18,10 @@
 
 #include <ArduinoJson.h>
 #include <FastLED.h>
-#include <Volume3.h>  // 10-bit volume control library
+#include "Volume3.h"  // Volume3 library for 10-bit volume control
 #include <NewPing.h>
 
-// Sensor pins
+// Sensor pins - ORIGINAL HARDWARE CONFIGURATION
 const int trigPin1 = 9;
 const int echoPin1 = 10;
 const int trigPin2 = 5;
@@ -39,8 +39,8 @@ NewPing sonar2(trigPin2, echoPin2, 200); // Right sensor, max 200cm
 
 CRGB leds[NUM_LEDS];
 
-// Volume3 setup - no pin needed, uses default pins 9,10
-Volume3 vol;
+// Volume3 setup - uses pins 9,10 by default on Arduino Uno
+// No initialization needed - Volume3 doesn't need vol.begin()!
 
 // Volume control
 const int VOLUME_PIN = A0;
@@ -111,8 +111,6 @@ void setup() {
     distance2Samples[i] = MAX_RANGE + 1;
   }
   
-  // Volume3 doesn't need vol.begin()!
-  
   // Audio test - play startup sequence
   playStartupSequence();
 }
@@ -121,7 +119,7 @@ void playStartupSequence() {
   // Play a pleasant startup melody with volume control
   int melody[] = {220, 277, 330, 440}; // A3, C#4, E4, A4
   for (int i = 0; i < 4; i++) {
-    vol.tone(9, melody[i], 300 + (i * 100)); // Increasing volume
+    vol.tone(11, melody[i], 300 + (i * 100)); // Increasing volume
     delay(200);
   }
   vol.noTone(); // Stop tone
@@ -266,7 +264,7 @@ void updateThereminAudio(float frequency) {
     currentVolume += (targetVolume - currentVolume) * VOL_SMOOTHING;
     
     // Play the tone with smooth volume
-    vol.tone(9, (unsigned int)currentFrequency, (unsigned int)currentVolume);
+    vol.tone(11, (unsigned int)currentFrequency, (unsigned int)currentVolume);
     thereminActive = true;
     
   } else {
@@ -276,7 +274,7 @@ void updateThereminAudio(float frequency) {
       currentVolume += (targetVolume - currentVolume) * VOL_SMOOTHING;
       
       if (currentVolume > 5) {
-        vol.tone(9, (unsigned int)currentFrequency, (unsigned int)currentVolume);
+        vol.tone(11, (unsigned int)currentFrequency, (unsigned int)currentVolume);
       } else {
         vol.noTone(); // Stop tone when volume is very low
         thereminActive = false;
