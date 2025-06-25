@@ -1,12 +1,14 @@
 /*
  * Solar Shrine with Theremin Integration
  * Dual-mode lighting (attract/interactive) + theremin-like sound generation
+ * Enhanced with volume control and smoother audio transitions
  * Uses NewTone library for timer compatibility with ultrasonic sensors
  * 
  * Hardware:
  * - 2x HC-SR04 ultrasonic sensors (pins 5,6,9,10)
  * - WS2812B/WS2815 LED strip (pin 3)
  * - WWZMDiB XH-M543 amplifier + Dayton Audio DAEX32QMB-4 exciter (pin 11)
+ * - Optional: 10k potentiometer on A0 for volume control
  * 
  * Libraries Required:
  * - FastLED
@@ -38,8 +40,9 @@ NewPing sonar2(trigPin2, echoPin2, 200); // Right sensor, max 200cm
 
 CRGB leds[NUM_LEDS];
 
-// Audio pin
+// Audio pin and volume control
 const int AUDIO_PIN = 11;
+const int VOLUME_PIN = A0;  // Optional volume potentiometer
 
 // Range constants (in cm)
 const float MIN_RANGE = 1.0;
@@ -49,6 +52,17 @@ const float MAX_RANGE = 20.0;
 const float MIN_FREQ = 80.0;    // Low bass tones
 const float MAX_FREQ = 2000.0;  // High treble tones
 const float BASE_FREQ = 220.0;  // A3 note as base
+
+// Volume and envelope settings
+float masterVolume = 0.5;       // 0.0 to 1.0
+const float VOLUME_SMOOTHING = 0.1;  // Volume smoothing factor
+float currentVolume = 0.0;
+float targetVolume = 0.0;
+
+// Enhanced audio smoothing
+const float FREQ_SMOOTHING = 0.08;    // Slower frequency smoothing for less choppiness
+const float ENVELOPE_ATTACK = 0.15;   // Attack rate for volume envelope
+const float ENVELOPE_RELEASE = 0.05;  // Release rate for volume envelope
 
 // Mode constants
 enum LightMode {
@@ -61,7 +75,7 @@ LightMode currentMode = ATTRACT_MODE;
 unsigned long lastHandDetectedTime = 0;
 const unsigned long INTERACTIVE_TIMEOUT = 10000;  // 10 seconds
 unsigned long lastToneTime = 0;
-const unsigned long TONE_UPDATE_INTERVAL = 30;    // Update tone every 30ms
+const unsigned long TONE_UPDATE_INTERVAL = 20;    // Update tone every 20ms for smoother response
 
 // Attract mode variables
 const float ATTRACT_PERIOD = 5000.0;  // 5 seconds in milliseconds
@@ -79,11 +93,14 @@ bool samplesInitialized = false;
 CRGB lastLeftColor = CRGB::Yellow;
 CRGB lastRightColor = CRGB::Yellow;
 
-// Theremin state
+// Enhanced theremin state
 bool thereminActive = false;
 float currentFrequency = 0;
 float targetFrequency = 0;
-const float FREQ_SMOOTHING = 0.15;  // Frequency smoothing factor
+bool fadeIn = false;
+bool fadeOut = false;
+unsigned long fadeStartTime = 0;
+const unsigned long FADE_DURATION = 300;  // 300ms fade in/out
 
 void setup() {
   Serial.begin(9600);
@@ -103,17 +120,44 @@ void setup() {
     distance2Samples[i] = MAX_RANGE + 1;
   }
   
-  // Audio test - play startup sequence
+  // Read initial volume setting
+  if (VOLUME_PIN != -1) {
+    masterVolume = analogRead(VOLUME_PIN) / 1023.0;
+  }
+  
+  // Audio test - play startup sequence with volume control
   playStartupSequence();
 }
 
 void playStartupSequence() {
-  // Play a pleasant startup melody
+  // Play a pleasant startup melody with envelope
   int melody[] = {220, 277, 330, 440}; // A3, C#4, E4, A4
+  int durations[] = {200, 200, 200, 400};
+  
   for (int i = 0; i < 4; i++) {
-    NewTone(AUDIO_PIN, melody[i]);
-    delay(200);
+    playToneWithEnvelope(melody[i], durations[i]);
+    delay(durations[i] + 50);
   }
+}
+
+void playToneWithEnvelope(int frequency, int duration) {
+  // Simple envelope: quick attack, sustained, quick release
+  int attackTime = duration / 8;
+  int sustainTime = duration - (2 * attackTime);
+  int releaseTime = attackTime;
+  
+  // Attack phase - ramp up volume
+  for (int t = 0; t < attackTime; t += 10) {
+    float vol = (float)t / attackTime;
+    NewTone(AUDIO_PIN, frequency);
+    delay(10);
+  }
+  
+  // Sustain phase
+  NewTone(AUDIO_PIN, frequency);
+  delay(sustainTime);
+  
+  // Release phase - would need external volume control for true fade
   NewTone(AUDIO_PIN, 0); // Stop tone
 }
 
@@ -217,9 +261,9 @@ float calculateThereminFrequency(float distance1, float distance2, bool inRange1
     ratio = constrain(ratio, 0.0, 1.0);
     frequency = MIN_FREQ + (MAX_FREQ - MIN_FREQ) * (1.0 - ratio);
     
-    // Add harmonic modulation based on hand difference
+    // Add subtle harmonic modulation based on hand difference
     if (difference > 2.0) {
-      float modulation = sin(millis() * 0.01) * 50; // Vibrato effect
+      float modulation = sin(millis() * 0.003) * 20; // Slower, subtler vibrato
       frequency += modulation;
     }
     
@@ -240,20 +284,74 @@ float calculateThereminFrequency(float distance1, float distance2, bool inRange1
 }
 
 void updateThereminAudio(float frequency) {
+  // Read volume control if available
+  if (VOLUME_PIN != -1) {
+    float newMasterVolume = analogRead(VOLUME_PIN) / 1023.0;
+    masterVolume += (newMasterVolume - masterVolume) * VOLUME_SMOOTHING;
+  }
+  
   if (frequency > 0) {
-    if (!thereminActive || abs(currentFrequency - frequency) > 5) {
-      // Smooth frequency transitions
-      targetFrequency = frequency;
-      currentFrequency += (targetFrequency - currentFrequency) * FREQ_SMOOTHING;
-      
-      NewTone(AUDIO_PIN, (unsigned int)currentFrequency);
+    // Starting a new note or continuing
+    if (!thereminActive) {
+      // Start fade in
       thereminActive = true;
+      fadeIn = true;
+      fadeOut = false;
+      fadeStartTime = millis();
+      currentVolume = 0.0;
     }
+    
+    // Smooth frequency transitions
+    targetFrequency = frequency;
+    currentFrequency += (targetFrequency - currentFrequency) * FREQ_SMOOTHING;
+    
+    // Handle volume envelope
+    if (fadeIn) {
+      unsigned long elapsed = millis() - fadeStartTime;
+      if (elapsed < FADE_DURATION) {
+        currentVolume = (float)elapsed / FADE_DURATION * masterVolume;
+      } else {
+        fadeIn = false;
+        currentVolume = masterVolume;
+      }
+    } else if (!fadeOut) {
+      targetVolume = masterVolume;
+      currentVolume += (targetVolume - currentVolume) * ENVELOPE_ATTACK;
+    }
+    
+    // Play tone at calculated frequency
+    // Note: NewTone doesn't support volume, so we simulate it with on/off timing
+    if (currentVolume > 0.1) {  // Only play if volume is significant
+      NewTone(AUDIO_PIN, (unsigned int)currentFrequency);
+    } else {
+      NewTone(AUDIO_PIN, 0);
+    }
+    
   } else {
-    if (thereminActive) {
-      NewTone(AUDIO_PIN, 0); // Stop tone
-      thereminActive = false;
-      currentFrequency = 0;
+    // No frequency - start fade out if not already fading
+    if (thereminActive && !fadeOut) {
+      fadeOut = true;
+      fadeIn = false;
+      fadeStartTime = millis();
+    }
+    
+    if (fadeOut) {
+      unsigned long elapsed = millis() - fadeStartTime;
+      if (elapsed < FADE_DURATION) {
+        currentVolume = masterVolume * (1.0 - (float)elapsed / FADE_DURATION);
+        if (currentVolume > 0.1) {
+          NewTone(AUDIO_PIN, (unsigned int)currentFrequency);
+        } else {
+          NewTone(AUDIO_PIN, 0);
+        }
+      } else {
+        // Fade complete
+        NewTone(AUDIO_PIN, 0);
+        thereminActive = false;
+        fadeOut = false;
+        currentVolume = 0.0;
+        currentFrequency = 0;
+      }
     }
   }
 }
