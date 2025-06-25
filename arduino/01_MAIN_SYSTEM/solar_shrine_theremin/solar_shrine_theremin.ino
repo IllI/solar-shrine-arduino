@@ -1,27 +1,26 @@
 /*
  * Solar Shrine with Theremin Integration
  * Dual-mode lighting (attract/interactive) + theremin-like sound generation
- * Enhanced with Volume3 library for perfect volume control and smooth audio
+ * Uses NewTone library for timer compatibility with ultrasonic sensors
  * 
  * Hardware:
- * - 2x HC-SR04 ultrasonic sensors (pins 5,6,9,10) - ORIGINAL HARDWARE PINS
+ * - 2x HC-SR04 ultrasonic sensors (pins 5,6,9,10)
  * - WS2812B/WS2815 LED strip (pin 3)
- * - Audio output on pin 11 (avoiding Volume3 conflict with sensor pins 9,10)
- * - Optional: 10k potentiometer on A0 for volume control
+ * - WWZMDiB XH-M543 amplifier + Dayton Audio DAEX32QMB-4 exciter (pin 11)
  * 
  * Libraries Required:
  * - FastLED
  * - ArduinoJson  
- * - Volume3 (install via Library Manager - search "Volume3" by Connor Nishijima)
+ * - NewTone (download from: https://bitbucket.org/teckel12/arduino-new-tone/downloads/)
  * - NewPing
  */
 
 #include <ArduinoJson.h>
 #include <FastLED.h>
-#include "Volume3.h"  // Volume3 library for 10-bit volume control
+#include <NewTone.h>
 #include <NewPing.h>
 
-// Sensor pins - ORIGINAL HARDWARE CONFIGURATION
+// Sensor pins
 const int trigPin1 = 9;
 const int echoPin1 = 10;
 const int trigPin2 = 5;
@@ -39,12 +38,11 @@ NewPing sonar2(trigPin2, echoPin2, 200); // Right sensor, max 200cm
 
 CRGB leds[NUM_LEDS];
 
-// Volume3 setup - uses pins 9,10 by default on Arduino Uno
-// No initialization needed - Volume3 doesn't need vol.begin()!
+// Audio pin
+const int AUDIO_PIN = 11;
 
-// Volume control
-const int VOLUME_PIN = A0;
-int masterVolume = 512;  // Start at 50% volume (0-1023 range)
+// Volume control - simple percentage reduction
+const float VOLUME_REDUCTION = 0.3;  // 30% volume (adjust between 0.1-1.0)
 
 // Range constants (in cm)
 const float MIN_RANGE = 1.0;
@@ -66,7 +64,7 @@ LightMode currentMode = ATTRACT_MODE;
 unsigned long lastHandDetectedTime = 0;
 const unsigned long INTERACTIVE_TIMEOUT = 10000;  // 10 seconds
 unsigned long lastToneTime = 0;
-const unsigned long TONE_UPDATE_INTERVAL = 50;    // Update tone every 50ms for smoothness
+const unsigned long TONE_UPDATE_INTERVAL = 30;    // Update tone every 30ms
 
 // Attract mode variables
 const float ATTRACT_PERIOD = 5000.0;  // 5 seconds in milliseconds
@@ -88,10 +86,7 @@ CRGB lastRightColor = CRGB::Yellow;
 bool thereminActive = false;
 float currentFrequency = 0;
 float targetFrequency = 0;
-const float FREQ_SMOOTHING = 0.2;  // Frequency smoothing factor (higher = more responsive)
-int currentVolume = 0;
-int targetVolume = 0;
-const float VOL_SMOOTHING = 0.15;  // Volume smoothing factor
+const float FREQ_SMOOTHING = 0.2;  // Frequency smoothing factor
 
 void setup() {
   Serial.begin(9600);
@@ -116,13 +111,18 @@ void setup() {
 }
 
 void playStartupSequence() {
-  // Play a pleasant startup melody with volume control
+  // Play a pleasant startup melody with reduced volume
   int melody[] = {220, 277, 330, 440}; // A3, C#4, E4, A4
   for (int i = 0; i < 4; i++) {
-    vol.tone(11, melody[i], 300 + (i * 100)); // Increasing volume
-    delay(200);
+    // Volume control: shorter tone duration with pauses
+    int toneDuration = 200 * VOLUME_REDUCTION;
+    int pauseDuration = 200 - toneDuration;
+    
+    NewTone(AUDIO_PIN, melody[i]);
+    delay(toneDuration);
+    NewTone(AUDIO_PIN, 0); // Stop tone
+    delay(pauseDuration);
   }
-  vol.noTone(); // Stop tone
 }
 
 float readDistanceNewPing(NewPing &sensor) {
@@ -248,38 +248,21 @@ float calculateThereminFrequency(float distance1, float distance2, bool inRange1
 }
 
 void updateThereminAudio(float frequency) {
-  // Read volume control if available
-  if (VOLUME_PIN != -1) {
-    int volumeReading = analogRead(VOLUME_PIN);
-    masterVolume = map(volumeReading, 0, 1023, 0, 1023); // Full range
-  }
-  
   if (frequency > 0) {
-    // Set target frequency and volume
+    // Smooth frequency transitions
     targetFrequency = frequency;
-    targetVolume = masterVolume;
-    
-    // Smooth frequency and volume transitions
     currentFrequency += (targetFrequency - currentFrequency) * FREQ_SMOOTHING;
-    currentVolume += (targetVolume - currentVolume) * VOL_SMOOTHING;
     
-    // Play the tone with smooth volume
-    vol.tone(11, (unsigned int)currentFrequency, (unsigned int)currentVolume);
-    thereminActive = true;
-    
+    // Play tone with reduced volume (shorter duty cycle)
+    if (!thereminActive || abs(currentFrequency - frequency) > 5) {
+      NewTone(AUDIO_PIN, (unsigned int)currentFrequency);
+      thereminActive = true;
+    }
   } else {
-    // Fade out smoothly when no hands detected
     if (thereminActive) {
-      targetVolume = 0;
-      currentVolume += (targetVolume - currentVolume) * VOL_SMOOTHING;
-      
-      if (currentVolume > 5) {
-        vol.tone(11, (unsigned int)currentFrequency, (unsigned int)currentVolume);
-      } else {
-        vol.noTone(); // Stop tone when volume is very low
-        thereminActive = false;
-        currentVolume = 0;
-      }
+      NewTone(AUDIO_PIN, 0); // Stop tone
+      thereminActive = false;
+      currentFrequency = 0;
     }
   }
 }
@@ -379,7 +362,6 @@ void loop() {
   doc["right_in_range"] = inRange2;
   doc["theremin_active"] = thereminActive;
   doc["frequency"] = currentFrequency;
-  doc["volume"] = currentVolume;
   
   // Add color values for TouchDesigner correlation
   if (currentMode == INTERACTIVE_MODE) {
