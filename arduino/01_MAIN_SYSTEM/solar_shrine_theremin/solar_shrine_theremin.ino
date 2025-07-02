@@ -1,19 +1,18 @@
 /*
  * Solar Shrine with Theremin Integration
- * Dual-mode lighting (attract/interactive) + PWM-based theremin audio generation
- * Uses granular synthesis approach inspired by Peter Knight's Auduino project
+ * Dual-mode lighting (attract/interactive) + Mozzi-based theremin audio generation
+ * Uses Mozzi library for high-quality audio synthesis (pin 9 compatible!)
  * 
  * Hardware:
- * - 2x HC-SR04 ultrasonic sensors (pins 5,6,9,10)
+ * - 2x HC-SR04 ultrasonic sensors (pins 5,6,10,11) - moved for Mozzi compatibility
  * - WS2812B/WS2815 LED strip (pin 3)
- * - WWZMDiB XH-M543 amplifier + Dayton Audio DAEX32QMB-4 exciter (pin 11)
+ * - WWZMDiB XH-M543 amplifier + Dayton Audio DAEX32QMB-4 exciter (pin 9)
  * 
  * Libraries Required:
  * - FastLED
  * - ArduinoJson  
  * - NewPing
- * 
- * IMPORTANT: NO NewTone library - using PWM timer interrupt approach instead
+ * - Mozzi (download from https://sensorium.github.io/Mozzi/)
  * 
  * AUDIO DISABLE: Set ENABLE_AUDIO to false to disable audio completely
  */
@@ -23,12 +22,23 @@
 #include <ArduinoJson.h>
 #include <FastLED.h>
 #include <NewPing.h>
-#include <avr/io.h>
-#include <avr/interrupt.h>
 
-// Sensor pins
-const int trigPin1 = 9;
-const int echoPin1 = 10;
+#if ENABLE_AUDIO
+#include <MozziGuts.h>
+#include <Oscil.h> 
+#include <RollingAverage.h>
+#include <tables/triangle_valve_2048_int8.h>
+
+Oscil <TRIANGLE_VALVE_2048_NUM_CELLS, AUDIO_RATE> osc(TRIANGLE_VALVE_2048_DATA);
+RollingAverage <int, 4> freqAverage;
+RollingAverage <int, 8> volAverage;
+
+#define CONTROL_RATE 128
+#endif
+
+// Sensor pins (updated for your hardware changes)
+const int trigPin1 = 10;  // Moved from pin 9
+const int echoPin1 = 11;  // Moved from pin 10
 const int trigPin2 = 5;
 const int echoPin2 = 6;
 
@@ -44,43 +54,22 @@ NewPing sonar2(trigPin2, echoPin2, 200); // Right sensor, max 200cm
 
 CRGB leds[NUM_LEDS];
 
-// Audio pin and PWM configuration
-const int AUDIO_PIN = 11;
+// Audio pin - now on pin 9 (perfect for Mozzi!)
+const int AUDIO_PIN = 9;
 
 #if ENABLE_AUDIO
-// PWM Audio generation variables (based on Auduino approach)
-#define PWM_PIN 11
-#define PWM_VALUE OCR2A
-#define PWM_INTERRUPT TIMER2_OVF_vect
-
-// Granular synthesis variables
-uint16_t syncPhaseAcc = 0;
-uint16_t syncPhaseInc = 0;
-uint16_t grainPhaseAcc = 0;  
-uint16_t grainPhaseInc = 0;
-uint16_t grainAmp = 0;
-uint8_t grainDecay = 0;
-uint16_t grain2PhaseAcc = 0;
-uint16_t grain2PhaseInc = 0;
-uint16_t grain2Amp = 0;
-uint8_t grain2Decay = 0;
-
-// Phase increment mapping table (simplified from Auduino)
-uint16_t mapPhaseInc(uint16_t input) {
-  // Simple exponential mapping for frequency control
-  // Input range 0-1023 maps to phase increments
-  return (input * input) >> 6; // Exponential curve, scaled down
-}
+// Mozzi audio variables (now pin 9 compatible!)
+int audioVolume = 0;
+int targetVolume = 0;
+const int MIN_FREQ = 131;    // C3 in Hz
+const int MAX_FREQ = 1046;   // C6 in Hz
+const int BASE_FREQ = 220;   // A3 note as base frequency
+const int FADE_SPEED = 4;    // Volume fade speed
 #endif
 
 // Range constants (in cm)
 const float MIN_RANGE = 1.0;
 const float MAX_RANGE = 20.0;
-
-// Theremin frequency ranges
-const float MIN_FREQ = 80.0;    // Low bass tones
-const float MAX_FREQ = 1200.0;  // High frequencies
-const float BASE_FREQ = 220.0;  // A3 note as base
 
 // Mode constants
 enum LightMode {
@@ -92,8 +81,6 @@ enum LightMode {
 LightMode currentMode = ATTRACT_MODE;
 unsigned long lastHandDetectedTime = 0;
 const unsigned long INTERACTIVE_TIMEOUT = 10000;  // 10 seconds
-unsigned long lastToneTime = 0;
-const unsigned long TONE_UPDATE_INTERVAL = 50;    // Update audio parameters every 50ms
 
 // Attract mode variables
 const float ATTRACT_PERIOD = 5000.0;  // 5 seconds in milliseconds
@@ -115,55 +102,16 @@ CRGB lastRightColor = CRGB::Yellow;
 bool thereminActive = false;
 
 #if ENABLE_AUDIO
-// PWM Audio setup function
-void audioOn() {
-  // Set up PWM to 31.25kHz, phase accurate (Timer2)
-  // Based on Auduino configuration for ATmega328
-  TCCR2A = _BV(COM2A1) | _BV(WGM20);  // Phase correct PWM, output on OC2A (pin 11)
-  TCCR2B = _BV(CS20);                 // No prescaling
-  TIMSK2 = _BV(TOIE2);                // Enable overflow interrupt
+// Mozzi audio functions (now pin 9 compatible!)
+
+// Required Mozzi function - called by audioHook()
+void updateControl() {
+  // This will be called from the main loop when sensors are read
 }
 
-// Timer2 overflow interrupt - this generates the audio samples
-ISR(TIMER2_OVF_vect) {
-  uint8_t value;
-  uint16_t output;
-
-  // Update sync phase accumulator
-  syncPhaseAcc += syncPhaseInc;
-  if (syncPhaseAcc < syncPhaseInc) {
-    // Time to start the next grain
-    grainPhaseAcc = 0;
-    grainAmp = 0x7fff;
-    grain2PhaseAcc = 0;
-    grain2Amp = 0x7fff;
-  }
-
-  // Increment the phase of the grain oscillators
-  grainPhaseAcc += grainPhaseInc;
-  grain2PhaseAcc += grain2PhaseInc;
-
-  // Convert phase into a triangle wave for grain 1
-  value = (grainPhaseAcc >> 7) & 0xff;
-  if (grainPhaseAcc & 0x8000) value = ~value;
-  // Multiply by current grain amplitude to get sample
-  output = value * (grainAmp >> 8);
-
-  // Repeat for second grain
-  value = (grain2PhaseAcc >> 7) & 0xff;
-  if (grain2PhaseAcc & 0x8000) value = ~value;
-  output += value * (grain2Amp >> 8);
-
-  // Make the grain amplitudes decay by a factor every sample (exponential decay)
-  grainAmp -= (grainAmp >> 8) * grainDecay;
-  grain2Amp -= (grain2Amp >> 8) * grain2Decay;
-
-  // Scale output to the available range, clipping if necessary
-  output >>= 9;
-  if (output > 255) output = 255;
-
-  // Output to PWM
-  PWM_VALUE = output;
+// Required Mozzi function - generates audio samples
+int updateAudio() {
+  return (osc.next() * audioVolume) >> 8;  // Return audio sample with volume control
 }
 #endif
 
@@ -171,13 +119,10 @@ void setup() {
   Serial.begin(9600);
   delay(2000);
   
-  // Audio pin setup
-  pinMode(AUDIO_PIN, OUTPUT);
-  digitalWrite(AUDIO_PIN, LOW);
-  
 #if ENABLE_AUDIO
-  // Initialize PWM audio system
-  audioOn();
+  // Initialize Mozzi audio system
+  startMozzi(CONTROL_RATE);
+  osc.setFreq(MIN_FREQ);  // Set initial frequency
 #endif
   
   // FastLED setup
@@ -200,30 +145,29 @@ void setup() {
 
 void playStartupSequence() {
 #if ENABLE_AUDIO
-  // Simple startup indication - brief audio test
-  for (int i = 0; i < 3; i++) {
-    // Set basic parameters for a brief tone
-    syncPhaseInc = 1000 + (i * 500);  // Increasing frequency
-    grainPhaseInc = 2000;
-    grainDecay = 20;
-    grain2PhaseInc = 2500;
-    grain2Decay = 15;
+  // Simple startup indication using Mozzi (adapted from MiniMin)
+  int melody[] = {220, 277, 330, 440}; // A3, C#4, E4, A4
+  for (int i = 0; i < 4; i++) {
+    osc.setFreq(melody[i]);
+    audioVolume = 128;  // Medium volume
     
-    delay(150);
+    // Let Mozzi generate audio for 150ms
+    unsigned long startTime = millis();
+    while (millis() - startTime < 150) {
+      audioHook();  // Required for Mozzi audio generation
+    }
     
-    // Stop audio
-    syncPhaseInc = 0;
-    grainPhaseInc = 0;
-    grain2PhaseInc = 0;
-    delay(50);
+    audioVolume = 0;  // Silence
+    
+    // Silence for 50ms
+    startTime = millis();
+    while (millis() - startTime < 50) {
+      audioHook();
+    }
   }
   
-  // Reset to silent state
-  syncPhaseAcc = 0;
-  grainPhaseAcc = 0;
-  grain2PhaseAcc = 0;
-  grainAmp = 0;
-  grain2Amp = 0;
+  // Ensure silence after startup
+  audioVolume = 0;
 #else
   // Audio disabled - just a brief LED flash as startup indicator
   fill_solid(leds, NUM_LEDS, CRGB::White);
@@ -236,8 +180,13 @@ void playStartupSequence() {
 
 float readDistanceNewPing(NewPing &sensor) {
   unsigned int distance = sensor.ping_cm();
-  if (distance == 0 || distance > MAX_RANGE) {
-    return MAX_RANGE + 10; // Return a clearly invalid value for no echo or out of range
+  if (distance == 0) {
+    // No echo detected - hand is covering sensor (very close)
+    // Return minimum distance instead of invalid value (MiniMin approach)
+    return MIN_RANGE - 0.5;  // Closer than minimum range
+  }
+  if (distance > MAX_RANGE) {
+    return MAX_RANGE + 10; // Return invalid value for out of range
   }
   return (float)distance;
 }
@@ -247,7 +196,8 @@ float getAveragedDistance(float samples[]) {
   int validSamples = 0;
   
   for (int i = 0; i < SAMPLES; i++) {
-    if (samples[i] >= MIN_RANGE && samples[i] <= MAX_RANGE) {
+    // Include "very close" readings (hands covering sensors) in the valid range
+    if (samples[i] >= (MIN_RANGE - 0.5) && samples[i] <= MAX_RANGE) {
       sum += samples[i];
       validSamples++;
     }
@@ -320,67 +270,67 @@ void calculatePhaseOffset(CRGB currentColor) {
 
 void updateThereminAudio(float distance1, float distance2, bool inRange1, bool inRange2) {
 #if ENABLE_AUDIO
-  if (!inRange1 && !inRange2) {
-    // No hands detected - silence
+  int freq;
+  
+  // Check for any hand presence (including hands covering sensors)
+  bool hand1Present = (distance1 <= MAX_RANGE);  // Any valid reading or very close
+  bool hand2Present = (distance2 <= MAX_RANGE);  // Any valid reading or very close
+  
+  // Debug output - uncomment to see sensor readings and audio state
+  // Serial.print("D1: "); Serial.print(distance1); 
+  // Serial.print(" D2: "); Serial.print(distance2);
+  // Serial.print(" H1: "); Serial.print(hand1Present);
+  // Serial.print(" H2: "); Serial.print(hand2Present);
+  // Serial.print(" Vol: "); Serial.println(audioVolume);
+  
+  if (!hand1Present && !hand2Present) {
+    // Truly no hands detected - fade out volume (MiniMin approach)
     thereminActive = false;
-    syncPhaseInc = 0;
-    grainPhaseInc = 0;
-    grain2PhaseInc = 0;
-    grainDecay = 0;
-    grain2Decay = 0;
+    audioVolume = audioVolume - FADE_SPEED;
+    if (audioVolume < 0) audioVolume = 0;
     return;
   }
   
   thereminActive = true;
   
-  if (inRange1 && inRange2) {
-    // Both hands detected - use startup sequence parameter style
-    float avgDistance = (distance1 + distance2) / 2.0;
-    float difference = abs(distance1 - distance2);
+  // Calculate frequency based on hand positions (MiniMin approach)
+  if (hand1Present && hand2Present) {
+    // Both hands detected - use average distance for frequency
+    float workingDistance1 = constrain(distance1, MIN_RANGE - 0.5, MAX_RANGE);
+    float workingDistance2 = constrain(distance2, MIN_RANGE - 0.5, MAX_RANGE);
+    float avgDistance = (workingDistance1 + workingDistance2) / 2.0;
     
-    // Map average distance to sync frequency - same range as startup (1000-2000)
-    float ratio = (avgDistance - MIN_RANGE) / (MAX_RANGE - MIN_RANGE);
+    // Map to frequency range - closer = higher frequency (like MiniMin)
+    float ratio = (avgDistance - (MIN_RANGE - 0.5)) / (MAX_RANGE - (MIN_RANGE - 0.5));
     ratio = constrain(ratio, 0.0, 1.0);
-    syncPhaseInc = 1000 + (int)((1.0 - ratio) * 1000);  // 1000-2000 like startup
+    freq = MIN_FREQ + (MAX_FREQ - MIN_FREQ) * (1.0 - ratio);
     
-    // Map individual distances to grain frequencies - same as startup base values
-    float ratio1 = (distance1 - MIN_RANGE) / (MAX_RANGE - MIN_RANGE);
-    float ratio2 = (distance2 - MIN_RANGE) / (MAX_RANGE - MIN_RANGE);
-    ratio1 = constrain(ratio1, 0.0, 1.0);
-    ratio2 = constrain(ratio2, 0.0, 1.0);
-    
-    grainPhaseInc = 2000 + (int)((1.0 - ratio1) * 1000);   // 2000-3000 range
-    grain2PhaseInc = 2500 + (int)((1.0 - ratio2) * 1000);  // 2500-3500 range
-    
-    // Use startup decay values with slight variation for difference
-    grainDecay = 20 + (int)(difference);     // Base 20 like startup
-    grain2Decay = 15 + (int)(difference);    // Base 15 like startup
-    
-  } else if (inRange1) {
+  } else if (hand1Present) {
     // Left hand only - lower frequency range
-    float ratio = (distance1 - MIN_RANGE) / (MAX_RANGE - MIN_RANGE);
+    float workingDistance = constrain(distance1, MIN_RANGE - 0.5, MAX_RANGE);
+    float ratio = (workingDistance - (MIN_RANGE - 0.5)) / (MAX_RANGE - (MIN_RANGE - 0.5));
     ratio = constrain(ratio, 0.0, 1.0);
+    freq = MIN_FREQ + (BASE_FREQ - MIN_FREQ) * (1.0 - ratio);
     
-    syncPhaseInc = 800 + (int)((1.0 - ratio) * 700);   // 800-1500 range (lower)
-    grainPhaseInc = 1800 + (int)((1.0 - ratio) * 800); // 1800-2600 range
-    grain2PhaseInc = grainPhaseInc / 2;                 // Harmonic
-    grainDecay = 20;    // Same as startup
-    grain2Decay = 15;   // Same as startup
-    
-  } else if (inRange2) {
-    // Right hand only - higher frequency range
-    float ratio = (distance2 - MIN_RANGE) / (MAX_RANGE - MIN_RANGE);
+  } else if (hand2Present) {
+    // Right hand only - higher frequency range  
+    float workingDistance = constrain(distance2, MIN_RANGE - 0.5, MAX_RANGE);
+    float ratio = (workingDistance - (MIN_RANGE - 0.5)) / (MAX_RANGE - (MIN_RANGE - 0.5));
     ratio = constrain(ratio, 0.0, 1.0);
-    
-    syncPhaseInc = 1200 + (int)((1.0 - ratio) * 1000);  // 1200-2200 range (higher)
-    grainPhaseInc = 2200 + (int)((1.0 - ratio) * 1200); // 2200-3400 range
-    grain2PhaseInc = grainPhaseInc * 1.2;                // Higher harmonic
-    grainDecay = 20;    // Same as startup
-    grain2Decay = 15;   // Same as startup
+    freq = BASE_FREQ + (MAX_FREQ - BASE_FREQ) * (1.0 - ratio);
   }
+  
+  // Apply frequency smoothing and set oscillator frequency
+  int smoothedFreq = freqAverage.next(freq);
+  osc.setFreq(smoothedFreq);
+  
+  // Fade in volume when hands detected (MiniMin style)
+  audioVolume = audioVolume + FADE_SPEED;
+  if (audioVolume > 255) audioVolume = 255;
+  
 #else
   // Audio disabled - just update the theremin state for JSON output
-  thereminActive = (inRange1 || inRange2);
+  thereminActive = (hand1Present || hand2Present);
 #endif
 }
 
@@ -474,11 +424,8 @@ void loop() {
   // Update LED effects
   updateLEDs(avgDistance1, avgDistance2, handsDetected, currentTime);
   
-  // Update theremin audio (less frequently for smoother sound)
-  if (currentTime - lastToneTime >= TONE_UPDATE_INTERVAL) {
-    updateThereminAudio(avgDistance1, avgDistance2, inRange1, inRange2);
-    lastToneTime = currentTime;
-  }
+  // Update theremin audio (Mozzi approach)
+  updateThereminAudio(avgDistance1, avgDistance2, inRange1, inRange2);
   
   // Create JSON document for TouchDesigner - only send when hands detected or mode changes
   static LightMode lastReportedMode = ATTRACT_MODE;
@@ -495,14 +442,10 @@ void loop() {
     doc["right_in_range"] = inRange2;
     doc["theremin_active"] = thereminActive;
     
-    // Add granular synthesis parameters for TouchDesigner correlation
+    // Add Mozzi audio parameters for TouchDesigner correlation
     if (thereminActive) {
 #if ENABLE_AUDIO
-      doc["sync_phase"] = syncPhaseInc;
-      doc["grain1_phase"] = grainPhaseInc;
-      doc["grain2_phase"] = grain2PhaseInc;
-      doc["grain1_decay"] = grainDecay;
-      doc["grain2_decay"] = grain2Decay;
+      doc["audio_volume"] = audioVolume;
 #else
       doc["audio_disabled"] = true;
 #endif
@@ -526,6 +469,11 @@ void loop() {
     lastReportedMode = currentMode;
     lastHandsDetected = handsDetected;
   }
+
+#if ENABLE_AUDIO
+  // Required Mozzi audio hook - must be called frequently for audio generation
+  audioHook();
+#endif
   
-  delay(20);  // Faster loop for smoother theremin response
+  delay(10);  // Reduced delay for smoother audio with Mozzi
 } 
