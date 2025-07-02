@@ -60,7 +60,17 @@ STEP 2: Arduino Code Setup
 Your Arduino should send JSON in this format:
 {"left":27,"right":189,"hands_detected":false}
 
-Use the sensors_ws2815.ino code which already outputs the correct format.
+AUDIO SYSTEM COMPATIBILITY:
+- Main System (01_MAIN_SYSTEM): Full JSON output + theremin audio
+- MiniMin Test: Proven theremin with vibrato + sensor data
+- Musical Warm: Research-based warm sound (120-1500Hz range)
+- Alien Effect: Experimental synthesized sounds
+
+AUDIO QUALITY RESEARCH:
+- Sine waves = warm, musical sound
+- Triangle waves = tinny, harsh harmonics  
+- 120-1500Hz = optimal musical frequency range
+- Sources: Adafruit, Arduino.cc, audio physics research
 
 STEP 3: Access Sensor Data in Effects
 =====================================

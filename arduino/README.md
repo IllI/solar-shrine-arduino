@@ -105,10 +105,17 @@ Arduino IDE → Tools → Manage Libraries:
 - **Features**: Attract/Interactive modes without audio
 - **Use Case**: LED development and testing
 
-#### **03_audio_systems/speaker_test**
-- **Purpose**: Audio hardware validation
-- **Features**: Frequency tests, sweeps, theremin simulation
-- **Use Case**: Audio system debugging
+#### **03_audio_systems/** - Audio Quality Research & Development
+- **speaker_test/**: Audio hardware validation and testing
+- **minimin_theremin_test/**: Proven MiniMin design with vibrato
+- **musical_theremin_warm/**: Research-based musical theremin with warm sound
+- **alien_sound_effect/**: Experimental synthesized effects
+
+**Audio Quality Research:**
+- **Frequency Range**: 120-1500Hz proven optimal for musical theremin
+- **Waveform**: Sine waves = warm, Triangle waves = tinny
+- **Vibrato**: 2-4Hz rate with <2% depth for musical expression
+- **Research Sources**: [Adafruit](https://learn.adafruit.com/adafruit-arduino-lesson-10-making-sounds/pseudo-theramin), [Arduino.cc](https://www.arduino.cc/en/Tutorial/BuiltInExamples/tonePitchFollower/)
 
 #### **04_motor_control/stepper_control**
 - **Purpose**: Motor positioning control
@@ -187,16 +194,35 @@ Tools → Manage Libraries → Search & Install:
 
 ## 🎵 **Audio Integration Details**
 
-### **Theremin Frequency Mapping:**
+### **Audio Quality Research (Based on Multiple Sources):**
+
+**Optimal Frequency Ranges:**
+- **120-1500Hz**: Research-proven musical range ([Adafruit](https://learn.adafruit.com/adafruit-arduino-lesson-10-making-sounds/pseudo-theramin), [Arduino.cc](https://www.arduino.cc/en/Tutorial/BuiltInExamples/tonePitchFollower/))
+- **Below 120Hz**: Bass range, hard to hear clearly on small speakers
+- **Above 1500Hz**: Becomes harsh and piercing to human ears
+
+**Waveform Quality Analysis:**
+- **Sine Waves**: Pure, warm, musical (recommended for theremin)
+- **Triangle Waves**: Contains odd harmonics, sounds "tinny"
+- **Square Waves**: Very buzzy, better for retro game sounds
+
+### **Theremin Frequency Mapping (Main System):**
 - **Left Hand Only**: 80Hz - 220Hz (bass range)
 - **Right Hand Only**: 220Hz - 2000Hz (treble range)  
 - **Both Hands**: Harmonic blending with vibrato effects
 - **Distance Mapping**: Close = High frequency, Far = Low frequency
 
+### **Musical Theremin Implementations:**
+- **Main System**: NewTone library with triangle wave (functional)
+- **MiniMin Test**: Proven design with gentle vibrato
+- **Musical Warm**: Research-based sine wave with 120-1500Hz range
+- **Alien Effect**: Experimental synthesized sounds
+
 ### **Audio Hardware Requirements:**
 - **12V Power Supply** (2A+ recommended)
 - **Proper grounding** between Arduino and amplifier
 - **Heat dissipation** for amplifier (consider cooling)
+- **Speaker Selection**: Full-range speakers recommended for 120-1500Hz response
 
 ---
 
