@@ -1,44 +1,71 @@
-TouchDesigner Project Setup Instructions
+TouchDesigner Project Setup Instructions (Modern JSON DAT Method)
 
-1. Create a new TouchDesigner project and save it as 'solar_shrine.toe'
+This guide uses the recommended JSON DAT operator in TouchDesigner for a stable, high-performance connection to the Arduino.
+
+1. Create a new TouchDesigner project and save it.
 
 2. Create the following network structure:
    /project1
-     /sensor_parser
+     /arduino_input
        - Serial DAT (named 'serial1')
-       - Python CHOP (named 'python1')
+       - JSON DAT (named 'json1')
      /effects
        - Base COMP (named 'left_effect')
        - Base COMP (named 'right_effect')
-       - Base COMP (named 'hands_effect')
-     /null1 (for parameter storage)
+     /ui_data
+       - Null CHOP (optional, for consolidating data)
 
-3. Configure the Serial DAT:
-   - Set the correct COM port
-   - Set baud rate to 9600
-   - Enable 'Active'
-   - Set 'Callback DAT' to 'python1'
+3. Configure the Serial DAT ('serial1'):
+   - Set the 'Port' to your Arduino's COM port.
+   - Set 'Baud Rate' to 9600.
+   - Ensure 'Active' is toggled on.
+   - Connect its output to the input of the 'json1' DAT.
 
-4. Configure the Python CHOP:
-   - Copy the contents of 'scripts/sensor_parser.py' into the Python CHOP
-   - Set 'Execute' to 'On Frame End'
+4. Configure the JSON DAT ('json1'):
+   - The JSON DAT will automatically parse the incoming data from the Serial DAT.
+   - You can view the parsed data structure directly in the operator viewer. It should show keys like "left", "right", "frequency", etc.
 
-5. Create custom parameters on the parent component:
-   - left_distance (float)
-   - right_distance (float)
-   - hands_detected (toggle)
+5. Create Custom Parameters on Your Effects:
+   In your 'left_effect' and 'right_effect' components, create the parameters you want to control. For example:
+   - An 'Intensity' parameter (0 to 1 float).
+   - A 'Color' parameter (e.g., using R, G, B).
+   - An 'Active' toggle.
 
-6. In each effect COMP, create:
-   - left_effect: intensity parameter
-   - right_effect: intensity parameter
-   - hands_effect: active parameter
+6. Connect Sensor Data to Effects (The Core Task):
+   This method uses expressions to directly link the JSON data to your effect parameters. This is clean and avoids performance issues.
 
-7. Connect the parameters:
-   - Map the sensor values to the effect parameters
-   - Use the null1 CHOP to store and distribute the values
+   **Example: Control Effect Intensity with Sensor Proximity**
 
-8. Test the setup:
-   - Upload the Arduino code
-   - Open the Serial Monitor to verify JSON output
-   - Check that TouchDesigner receives and parses the data
-   - Verify that the effects respond to sensor input 
+   Let's connect the `left_orange_value` from the Arduino to the `Intensity` of your `left_effect`. The `left_orange_value` is a float between 0.0 and 1.0, making it perfect for controlling parameters.
+
+   a. **Select your effect:**
+      Navigate to your `left_effect` COMP (`/project1/effects/left_effect`).
+
+   b. **Find the parameter:**
+      Locate the custom 'Intensity' parameter you created.
+
+   c. **Add the expression:**
+      In the 'Intensity' parameter's value field, type the following Python expression:
+      `op('json1').result.get('left_orange_value', 0.0)`
+
+      - `op('json1')` refers to your JSON DAT operator.
+      - `.result` accesses the parsed JSON object.
+      - `.get('left_orange_value', 0.0)` safely retrieves the value. If `left_orange_value` doesn't exist in the current JSON message (e.g., in "attract" mode), it defaults to `0.0`, preventing errors.
+
+7. Test the Setup:
+   - Upload the latest Arduino code (`sensors_json_output.ino`).
+   - Open the Serial Monitor in the Arduino IDE briefly to verify it's sending JSON. Close it before starting TouchDesigner.
+   - In TouchDesigner, you should see the 'Intensity' parameter of your `left_effect` change as you move your hand over the left sensor.
+
+**More Expression Examples:**
+
+- **Controlling an on/off switch (e.g., an 'Active' toggle):**
+  `op('json1').result.get('hands_detected', 0)`
+
+- **Using raw distance to control a position (e.g., Circle TOP X-position):**
+  `op('json1').result.get('left', 200) / 10.0`
+  *(Here we divide by 10.0 to scale the raw centimeter value down to a smaller range suitable for position coordinates).*
+
+- **Driving color based on frequency:**
+  `op('json1').result.get('frequency', 80) / 2000.0`
+  *(This maps the theremin frequency range to a 0.0-1.0 value, which can be used in a Ramp TOP or to drive a color channel).* 
