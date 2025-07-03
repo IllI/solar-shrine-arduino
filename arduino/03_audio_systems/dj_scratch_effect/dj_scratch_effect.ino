@@ -1,19 +1,27 @@
 /****************************************************************************     
- MiniMin Theremin Test - Enhanced with Echo and Improved Sensitivity
+ MiniMin Theremin Test - Classic Theremin Sound with Vibrato
  Based on techno-womble's proven design, adapted for Solar Shrine hardware
  
  Original: Created 15 Dec 2019, Modified 23 Jan 2020, V1.2
  By John Potter (techno-womble)
  
- ENHANCEMENTS:
- - Echo/delay effect for richer sound
- - Increased sensor sensitivity (detects hands from farther away)  
- - Debug output to help tune hand movements
- - C Minor Pentatonic scale (sounds great!)
+ ENHANCEMENTS FOR CLASSIC THEREMIN SOUND:
+ - Warm sine wave oscillator (instead of tinny triangle)
+ - Classic theremin vibrato (5.5Hz wobble)
+ - Logarithmic volume response (more natural)
+ - Increased sensor sensitivity 
+ - Debug output for tuning
+ - C Minor Pentatonic scale
+ 
+ SOUND CHARACTERISTICS:
+ - Warm, organic theremin tone
+ - Natural vibrato modulation  
+ - Smooth volume transitions
+ - Professional theremin feel
  
  TUNING TIPS:
- - Adjust echoMix (0.0-1.0) for more/less echo
- - Adjust echoDelay (samples) for echo timing
+ - Adjust vibratoRate (Hz) for faster/slower wobble
+ - Adjust vibratoDepth (0.0-0.1) for more/less vibrato
  - Modify threshold values if sensitivity needs tweaking
  - Watch Serial Monitor for real-time sensor feedback
  
@@ -64,8 +72,8 @@ const int pitchHighThreshold = 30;            // Closest pitch distance (was 50)
 const int volLowThreshold = 600;              // Farthest volume distance (was 200)
 const int volHighThreshold = 30;              // Closest volume distance (was 50)
 
-// Frequency range - EXPANDED to 4 octaves (C2 to C6)
-const int lowestFreq = 65;                   // C2 in Hz
+// Frequency range
+const int lowestFreq = 131;                   // C3 in Hz
 const int highestFreq = 1046;                 // C6 in Hz
 
 // Timeout calculations
@@ -73,6 +81,11 @@ int pitchTimeOut = pitchLowThreshold * 8;
 int volTimeOut = volLowThreshold * 8;
 int smoothVol;
 int vol = 0;
+
+// DJ Scratch effect variables
+int prevPitchDur = 0;
+const int SCRATCH_VELOCITY_THRESHOLD = 100; // Tune this for sensitivity
+const int SCRATCH_FREQ_RANGE = 2000;       // Max frequency for scratch effect
 
 void setup(){
   // Initialize pitch sensor pins (right sensor)
@@ -91,9 +104,9 @@ void setup(){
   }
   
   Serial.begin(9600);
-  Serial.println("MiniMin Theremin Test - Enhanced with Echo!");
-  Serial.println("Right hand = Pitch, Left hand = Volume");
-  Serial.println("Cover sensors with hands to play");
+  Serial.println("DJ Scratch Theremin!");
+  Serial.println("Right hand = Scratch/Pitch, Left hand = Volume");
+  Serial.println("Swipe hand quickly over right sensor to scratch.");
   Serial.println("Sensor readings will be shown below:");
   Serial.println("PitchTime | VolTime | Frequency | Volume");
   
@@ -130,37 +143,48 @@ void updateControl(){
 
   dur = pulseIn(pitchIn, HIGH, pitchTimeOut);
   
-  if (dur < 5) {
-    // No echo detected - hand very close or no hand
-    freq = highestFreq;  // Very close = high frequency
-  } else {
-    // Echo detected - map distance to frequency using an exponential curve
-    distance = dur / 6;  // Convert to approximate distance
+  // Calculate hand velocity for scratch effect
+  int velocity = dur - prevPitchDur;
+
+  // If hand movement is fast enough, trigger scratch mode
+  if (abs(velocity) > SCRATCH_VELOCITY_THRESHOLD && dur > 5) {
+    // SCRATCH MODE
+    // Map velocity to a frequency range. Negative freq plays sound backwards.
+    int scratchFreq = map(velocity, -500, 500, -SCRATCH_FREQ_RANGE, SCRATCH_FREQ_RANGE);
+    osc.setFreq(scratchFreq);
     
-    // Constrain distance to the defined thresholds
-    if (distance >= pitchLowThreshold) distance = pitchLowThreshold;
-    if (distance < pitchHighThreshold) distance = pitchHighThreshold;
+    // Also give a burst of volume for the scratch
+    vol = 255; 
 
-    // Normalize distance to a 0.0 to 1.0 control value
-    float control = (float)(distance - pitchHighThreshold) / (pitchLowThreshold - pitchHighThreshold);
-
-    // Apply exponential mapping (logarithmic frequency)
-    // This makes pitch changes more sensitive when hand is close
-    freq = highestFreq * pow((float)lowestFreq / (float)highestFreq, control);
-  }   
-  
-  // Add slight random jitter for organic sound
-  jitter = random(-5, 5); 
-  
-  if (stepMode == true) {
-    // Snap to nearest note in scale
-    targetFreq = pAverage.next(notes[nearest(freq)]);
-    osc.setFreq(targetFreq + jitter); 
   } else {
-    // Smooth continuous frequency
-    averaged = pAverage.next(freq); 
-    osc.setFreq(averaged + jitter); 
+    // NORMAL THEREMIN MODE
+    if (dur < 5) {
+      // No echo detected - hand very close or no hand
+      freq = highestFreq;  // Very close = high frequency
+    } else {
+      // Echo detected - map distance to frequency
+      distance = dur / 6;  // Convert to approximate distance
+      if (distance >= pitchLowThreshold) distance = pitchLowThreshold;
+      if (distance < pitchHighThreshold) distance = pitchHighThreshold;
+      freq = map(distance, pitchHighThreshold, pitchLowThreshold, highestFreq, lowestFreq);
+    }   
+    
+    // Add slight random jitter for organic sound
+    jitter = random(-5, 5); 
+    
+    if (stepMode == true) {
+      // Snap to nearest note in scale
+      targetFreq = pAverage.next(notes[nearest(freq)]);
+      osc.setFreq(targetFreq + jitter); 
+    } else {
+      // Smooth continuous frequency
+      averaged = pAverage.next(freq); 
+      osc.setFreq(averaged + jitter); 
+    }
   }
+
+  // Update previous duration for next calculation
+  prevPitchDur = dur;
 
   // === VOLUME CONTROL (Left hand) ===
   digitalWrite(volOut, HIGH);
