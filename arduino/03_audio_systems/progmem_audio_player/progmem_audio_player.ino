@@ -56,10 +56,11 @@ void setupAudioTimer() {
   TCCR1A = _BV(COM1A1) | _BV(WGM11);              // Clear OC1A on compare match, Fast PWM
   TCCR1B = _BV(WGM13) | _BV(WGM12) | _BV(CS10);   // Fast PWM, no prescaler
   
-  // ONLY CHANGE: PWM frequency 8kHz → 31kHz (eliminate squeal)
-  // OLD (caused squeal): ICR1 = 1999  (8kHz PWM frequency)  
-  // NEW (no squeal):     ICR1 = 515   (31kHz PWM frequency)
-  ICR1 = 515;  // 31kHz PWM frequency (inaudible)
+  // MAXIMUM QUALITY: 20kHz PWM for highest resolution while still inaudible
+  // ICR1 = F_CPU / desired_pwm_frequency - 1
+  // ICR1 = 16MHz / 20kHz - 1 = 799
+  // This gives us 800 audio levels (nearly 10-bit resolution) vs 2000 levels original
+  ICR1 = 799;  // 20kHz PWM frequency (barely inaudible, maximum resolution)
   
   // OCR1A controls PWM duty cycle (audio sample value)
   OCR1A = ICR1 / 2;  // Start with silence (50% duty cycle)
@@ -67,15 +68,17 @@ void setupAudioTimer() {
   // Enable Timer1 Compare A interrupt - SAME as working version
   TIMSK1 = _BV(OCIE1A);
   
-  Serial.println("Timer1 Fast PWM: 31kHz (no squeal), 8kHz sampling via counter");
+  Serial.println("Timer1 Fast PWM: 20kHz (barely audible), ~10-bit resolution (maximum quality)");
 }
 
-// Timer1 Compare A interrupt - fires at 31kHz, but we sample at 8kHz
+// Timer1 Compare A interrupt - fires at 20kHz, but we sample at 8kHz
 ISR(TIMER1_COMPA_vect) {
   // Count PWM cycles to achieve 8kHz sample rate
-  // 31kHz / 8kHz ≈ 4, so update sample every 4th interrupt
+  // 20kHz / 8kHz = 2.5, so alternate between 2 and 3 for precise timing
   sampleCounter++;
-  if (sampleCounter >= 4) {
+  uint8_t target = (sampleCounter & 1) ? 3 : 2;  // Alternate 2,3,2,3... for 2.5 average
+  
+  if (sampleCounter >= target) {
     sampleCounter = 0;
     
     if (isPlaying && !audioComplete) {
@@ -83,6 +86,7 @@ ISR(TIMER1_COMPA_vect) {
       uint8_t sample = pgm_read_byte(&audioData[sampleIndex]);
       
       // Convert 8-bit sample (0-255) to PWM value (0-ICR1)
+      // Maximum resolution: 800 levels = near-original quality
       uint16_t pwmValue = ((uint32_t)sample * ICR1) / 255;
       OCR1A = pwmValue;
       

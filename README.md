@@ -1,313 +1,272 @@
-# Solar Shrine Interactive Installation
+# Solar Shrine Arduino System
 
-An interactive installation using Arduino ultrasonic sensors, LED lighting effects, audio feedback, and TouchDesigner for visual effects. The installation features dual-mode lighting (attract/interactive), hand-proximity detection, and haptic audio feedback.
+## ⚠️ **IMPORTANT AUDIO UPDATE**
 
-## Project Structure
+**Previous sample playback approach using `analogWrite()` does NOT work!**
+- Creates buzzer sounds instead of recognizable audio
+- Due to Arduino's PWM frequency limitations (490Hz vs 8kHz+ needed)
+
+**⚡ NEW TIMER-BASED METHOD: Technical Solution with Limitations**
+- Uses Timer2 PWM at 11,025Hz frequency
+- Interrupt-driven precise sample timing
+- RC filter for analog audio output
+- **REALITY**: Poor quality, ~1 second duration only
+- **RECOMMENDATION**: Your current Mozzi system is significantly better
+
+---
+
+## 🎯 **System Overview**
+
+The Solar Shrine is an interactive art installation combining:
+- **Dual-mode LED lighting** (attract/interactive)
+- **Hand-proximity audio generation** (Mozzi theremin - HIGH QUALITY)
+- **Ultrasonic sensors** for hand detection
+- **TouchDesigner integration** via JSON data
+
+## 🚀 **Quick Start - Main System**
+
+### **Current Production System:**
+```
+01_MAIN_SYSTEM/solar_shrine_theremin/solar_shrine_theremin.ino
+```
+
+This is your **working, tested system** with:
+- ✅ Mozzi theremin audio (high quality)
+- ✅ Dual-mode LED lighting
+- ✅ TouchDesigner JSON integration
+- ✅ Hand detection with filtering
+
+### **Required Libraries:**
+```bash
+Arduino IDE → Tools → Manage Libraries:
+- FastLED
+- ArduinoJson (v7.x)
+- NewPing
+- Mozzi (from https://sensorium.github.io/Mozzi/)
+```
+
+---
+
+## 🔊 **Audio Options**
+
+### **1. Mozzi Theremin (STRONGLY RECOMMENDED)**
+- **File**: `01_MAIN_SYSTEM/solar_shrine_theremin/solar_shrine_theremin.ino`
+- **Quality**: High-quality synthesis
+- **Memory**: Code only (~10KB)
+- **Duration**: Unlimited
+- **Status**: ✅ Working perfectly
+
+### **2. Timer-Based Sample Playback (EXPERIMENTAL)**
+- **File**: `03_audio_systems/timer_audio_player/timer_audio_player.ino`
+- **Quality**: Poor (distorted, muffled)
+- **Memory**: ~1 second duration only
+- **Hardware**: Requires RC filter (1kΩ + 10µF)
+- **Status**: ⚠️ Works but limited quality
+- **Guide**: See `TIMER_AUDIO_GUIDE.md`
+
+### **3. SD Card Audio (BEST FOR SAMPLES)**
+- **File**: `03_audio_systems/sd_card_audio_player/sd_card_audio_player.ino`
+- **Quality**: Good quality, unlimited duration
+- **Memory**: External SD card
+- **Status**: ✅ Working (requires SD card module)
+
+---
+
+## 🎵 **Audio Sample Playback Reality Check**
+
+### **What Research Shows:**
+Based on extensive Arduino forum analysis, sample playback on Arduino has **severe limitations**:
+
+- **Quality**: Described as "distorted", "not understandable", "static with clicks"
+- **Duration**: **~1 second maximum** on Arduino UNO (memory constraint)
+- **Hardware**: **RC filter mandatory** or audio is harsh/unusable
+- **Complexity**: Much more complex than expected
+
+### **Timer Method (Technical Solution):**
+```bash
+# 1. Convert your audio properly (limited results)
+python convert_audio_timer.py your_audio.wav
+
+# 2. Add RC filter circuit (mandatory)
+Pin 3 → 1kΩ resistor → Amplifier
+         ↓
+       10µF capacitor → Ground
+
+# 3. Use timer_audio_player.ino (expect poor quality)
+```
+
+### **Honest Comparison:**
+| Method | Quality | Duration | Complexity | Recommendation |
+|--------|---------|----------|------------|----------------|
+| **Your Mozzi System** | ✅ Excellent | ✅ Unlimited | ✅ Simple | 🎯 **USE THIS** |
+| Timer Sample Playback | ⚠️ Poor | ❌ ~1 second | ⚠️ Complex | 🔬 Experiment only |
+| SD Card Audio | ✅ Good | ✅ Unlimited | ⚠️ Hardware | 💾 If samples needed |
+
+---
+
+## 🔧 **Hardware Configuration**
+
+### **Pin Assignments:**
+```cpp
+// Main system (works with Mozzi)
+const int trigPin1 = 10;    // Sensor 1 trigger
+const int echoPin1 = 11;    // Sensor 1 echo
+const int trigPin2 = 5;     // Sensor 2 trigger
+const int echoPin2 = 6;     // Sensor 2 echo
+const int LED_PIN = 3;      // WS2812B LED strip
+const int AUDIO_PIN = 9;    // Audio output (Mozzi compatible)
+```
+
+### **Timer Audio Player:**
+```cpp
+// Timer audio player (Pin 3 for Timer2)
+const int trigPin1 = 10;    // Sensor 1 trigger
+const int echoPin1 = 11;    // Sensor 1 echo
+const int trigPin2 = 5;     // Sensor 2 trigger
+const int echoPin2 = 6;     // Sensor 2 echo
+const int LED_PIN = 2;      // LEDs (moved from 3)
+const int AUDIO_PIN = 3;    // Timer2 PWM output (OC2B)
+```
+
+### **Audio Hardware:**
+- **Amplifier**: WWZMDiB XH-M543 (TPA3116D2 chip)
+- **Exciter**: Dayton Audio DAEX32QMB-4 (40W 4Ω)
+- **Power**: 12V+ recommended
+- **Filter** (Timer method only): RC filter (1kΩ + 10µF)
+
+---
+
+## 📁 **Module Structure**
 
 ```
 solar-shrine-arduino/
-├── arduino/                           # Arduino code variants
-│   ├── sensors_fastled_effects.ino   # Advanced FastLED with attract/interactive modes
-│   ├── sensors_ws2815_effects.ino    # WS2815 advanced lighting effects
-│   ├── speaker_test.ino              # Audio hardware testing & integration
-│   ├── sensor_serial_stepper.ino     # Motor control integration
-│   ├── sensors_string_led_output.ino # Simple LED control (no libraries)
-│   ├── sensors_string_output.ino     # Basic sensor output
-│   └── sensors_json_output/          # JSON output variants
-│       ├── sensors_json_output.ino   # JSON + audio integration
-│       └── sensors_ws2815.ino        # Human hand LED mapping (83 LEDs)
-├── touchdesigner/                     # TouchDesigner files and scripts
-│   ├── scripts/
-│   │   ├── sensor_parser.py          # Python script for parsing sensor data
-│   │   └── movie_integration_parser.py # Movie integration parser
-│   ├── Po Tolo V2.5.toe              # Current TouchDesigner project
-│   └── solar_shrine_setup.txt        # Setup instructions for new projects
-└── README.md                          # This file
+├── 01_MAIN_SYSTEM/                    # 🚀 PRODUCTION READY
+│   └── solar_shrine_theremin.ino      # ⭐ MAIN SYSTEM - BEST AUDIO
+├── 02_lighting_systems/               # 💡 LED Testing
+│   └── fastled_dual_mode.ino          # Standalone lighting
+├── 03_audio_systems/                  # 🔊 Audio Components
+│   ├── timer_audio_player/            # ⚠️ Experimental: Poor quality samples
+│   │   └── timer_audio_player.ino     # Timer2-based audio
+│   ├── sd_card_audio_player/          # ✅ Good quality with SD card
+│   │   └── sd_card_audio_player.ino   # TMRpcm library
+│   └── mozzi_theremin_smooth/         # ✅ Advanced Mozzi
+│       └── mozzi_theremin_smooth.ino  # Professional theremin
+├── 04_motor_control/                  # ⚙️ Motor Systems
+├── 05_basic_sensors/                  # 📡 Sensor Testing
+├── 06_json_integration/               # 🔗 TouchDesigner
+└── 99_ARCHIVE/                        # 📦 Legacy files
 ```
 
-## Hardware Setup
+---
 
-### Required Components
+## 🎛️ **Features**
 
-#### Core Electronics
-- **Arduino Uno, Nano, or similar** (5V/16MHz recommended)
-- **2x HC-SR04 ultrasonic sensors** (for hand detection)
-- **USB cable** for Arduino connection and power
-
-#### LED Lighting System
-- **WS2812B or WS2815 LED strip** (20-83 LEDs depending on configuration)
-  - WS2812B: 5V addressable LEDs
-  - WS2815: 12V addressable LEDs (higher power, more stable)
-- **Appropriate power supply** for LED strip (calculate ~20mA per LED)
-
-#### Audio System (Optional)
-- **WWZMDiB XH-M543 High Power Digital Amplifier Board**
-  - TPA3116D2 chipset
-  - Dual Channel 2×120W output
-  - 12-24V DC power input
-- **Dayton Audio DAEX32QMB-4 Quad Feet Mega Bass 32mm Exciter**
-  - 40W RMS, 4 Ohm impedance
-  - Haptic feedback through surface vibration
-  - Frequency response: 80Hz - 20kHz
-
-#### Motor Control (Optional)
-- **L298N Motor Driver**
-- **DC Motor** (for physical installation effects)
-
-### Pin Configuration
-
-**Standard pin assignments across all sketches:**
-
-| Component | Arduino Pin | Notes |
-|-----------|-------------|-------|
-| **Ultrasonic Sensor 1 (Left)** | | |
-| - Trigger | Digital 9 | Output signal |
-| - Echo | Digital 10 | Input signal |
-| **Ultrasonic Sensor 2 (Right)** | | |
-| - Trigger | Digital 5 | Output signal |
-| - Echo | Digital 6 | Input signal |
-| **LED Strip Data** | Digital 3 | FastLED data pin |
-| **Speaker/Amplifier** | Digital 11 | PWM output for audio |
-| **Motor Control (L298N)** | | |
-| - IN3 | Digital 4 | Motor direction |
-| - IN4 | Digital 5 | Motor direction |
-| - ENB | Digital 11 | Motor enable (PWM) |
-
-### Power Requirements
-
-- **Arduino**: 5V via USB or 7-12V via barrel jack
-- **Sensors**: 5V from Arduino (low current)
-- **WS2812B LEDs**: 5V, ~20mA per LED
-- **WS2815 LEDs**: 12V, ~20mA per LED  
-- **Audio Amplifier**: 12-24V DC, up to 10A for full power
-- **Motor Driver**: 7-12V DC
-
-## Arduino Code Variants
-
-### 1. sensors_fastled_effects.ino ⭐ **RECOMMENDED**
-**Advanced dual-mode lighting system with hand detection averaging**
-
-- **Attract Mode**: Sinusoidal yellow-red fade (5-second period)
-- **Interactive Mode**: Distance-based red→orange→yellow colors
-- **Hand Detection**: 5-sample averaging to filter wind/dust
+### **Main System Features:**
+- **Attract Mode**: Yellow↔Red sinusoidal fade
+- **Interactive Mode**: Distance-based color changes
+- **Theremin Audio**: Dual-hand frequency control (HIGH QUALITY)
+- **Hand Detection**: 5-sample averaging prevents false triggers
+- **TouchDesigner**: JSON output with correlation data
 - **Smooth Transitions**: Trigonometric phase matching
-- **TouchDesigner Integration**: JSON output with orange correlation values
 
-**Features:**
-- 10-second timeout returns to attract mode
-- Maintains colors when hands move away
-- Correlated color values for TouchDesigner effects
-- Split LED strip control (left/right sensors)
+### **Timer Audio Player Features:**
+- **Sample Playback**: Recognizable but poor quality audio
+- **Hand-Triggered**: Starts/stops with hand detection
+- **Memory Limited**: ~1 second maximum duration
+- **Hardware Required**: RC filter circuit mandatory
+- **Debug Interface**: Serial commands for testing
 
-**Hardware:** WS2812B/WS2815 LED strips, HC-SR04 sensors
-**Libraries:** FastLED, ArduinoJson
+---
 
-### 1.1. sensors_fastled_theremin.ino ⭐ **NEW - THEREMIN INTEGRATION**
-**Complete theremin + lighting system combining all features**
+## 🧪 **Testing & Development**
 
-- **All Features from sensors_fastled_effects.ino**
-- **Theremin Sound Generation**: Distance-based frequency control
-- **Dual Sensor Audio**: Left hand = bass, Right hand = treble
-- **Harmonic Effects**: Special vibrato when both hands detected
-- **Timer Compatibility**: Uses NewTone library to avoid conflicts
-- **Professional Audio**: Works with WWZMDiB XH-M543 + Dayton Audio exciter
-
-**Audio Features:**
-- Frequency range: 80Hz - 2kHz
-- Smooth frequency transitions with anti-aliasing
-- Musical startup sequence
-- Optimized for haptic feedback through exciter
-
-**Hardware:** All previous components + audio amplifier system
-**Libraries:** FastLED, ArduinoJson, NewTone, NewPing
-
-### 2. sensors_json_output/sensors_json_output.ino
-**Audio feedback integration with sensor detection**
-
-- **Speaker Integration**: WWZMDiB XH-M543 + Dayton Audio DAEX32QMB-4
-- **Beep System**: 1kHz tones when hands detected
-- **JSON Output**: Structured data for TouchDesigner
-- **LED Effects**: Basic color interpolation based on sensor difference
-
-**Features:**
-- Frequency-based beep generation (no tone library required)
-- Beep rate limiting (500ms minimum interval)
-- Hand detection with color mapping
-- Startup audio test
-
-**Hardware:** Audio amplifier, exciter speaker, LED strip, sensors
-**Libraries:** FastLED, ArduinoJson
-
-### 3. sensors_json_output/sensors_ws2815.ino
-**Human hand LED mapping for 83-LED installation**
-
-- **Hand-Shaped LED Layout**: 6 strips mapped to fingers and palm
-- **Advanced Effects**: Hand wave and finger wave animations
-- **Power Management**: Optimized for 83 LEDs on 12V WS2815
-- **Proximity Mapping**: Different effects based on left/right hand proximity
-
-**LED Mapping:**
-- Thumb: LEDs 0-12 (13 LEDs)
-- Index: LEDs 13-27 (15 LEDs)  
-- Middle: LEDs 28-43 (16 LEDs)
-- Ring: LEDs 44-57 (14 LEDs)
-- Pinky: LEDs 58-69 (12 LEDs)
-- Palm: LEDs 70-82 (13 LEDs)
-
-**Hardware:** WS2815 LED strips (83 LEDs), 12V power supply
-**Libraries:** FastLED, ArduinoJson
-
-### 4. sensors_ws2815_effects.ino
-**Advanced WS2815 lighting effects with multiple animation modes**
-
-- **Multiple Effect Modes**: Rainbow, sparkle, wave effects
-- **Split Strip Control**: Independent left/right sensor responses
-- **Breathing Effects**: Proximity-based intensity
-- **Special Modes**: Rainbow when both hands very close (<5cm)
-
-**Hardware:** WS2815 LED strips, HC-SR04 sensors
-**Libraries:** FastLED, ArduinoJson
-
-### 5. speaker_test.ino
-**Comprehensive audio hardware testing**
-
-- **Multi-Frequency Testing**: 100Hz, 1kHz, 2kHz test tones
-- **Hardware Validation**: Pin state verification
-- **Amplifier Testing**: Square wave generation for haptic feedback
-- **Serial Diagnostics**: Step-by-step test results
-
-**Use for:** Initial setup and troubleshooting of audio hardware
-
-### 6. sensor_serial_stepper.ino
-**Motor control integration for physical installations**
-
-- **L298N Motor Control**: Precise motor driver integration
-- **Binary Output**: Simple 0/1 values for TouchDesigner
-- **Hand Detection**: Both sensors must detect for motor activation
-
-**Hardware:** L298N motor driver, DC motor
-**Libraries:** None required
-
-### 7. sensors_string_led_output.ino
-**Lightweight LED control without libraries**
-
-- **No External Libraries**: Pure Arduino code
-- **Simple LED Control**: On/off based on dual hand detection
-- **Low Memory**: Minimal resource usage
-
-**Hardware:** Basic LED strip or single LED
-**Libraries:** None required
-
-### 8. sensors_string_output.ino
-**Basic sensor output for testing**
-
-- **Raw Sensor Data**: Simple space-separated values
-- **Minimal Code**: Essential sensor reading only
-- **Testing Tool**: Verify sensor functionality
-
-**Output Format:** `distance1 distance2 hands_detected`
-
-## Setup Instructions
-
-### Arduino Setup
-
-1. **Install Required Libraries** (depending on sketch):
-   ```
-   Arduino IDE → Tools → Manage Libraries
-   Search "FastLED" → Install latest version
-   Search "ArduinoJson" → Install v7.x
-   Search "NewPing" → Install latest version
-   ```
-   
-   **For Theremin Integration** (sensors_fastled_theremin.ino):
-   - Download **NewTone Library** manually from: [BitBucket NewTone](https://bitbucket.org/teckel12/arduino-new-tone/downloads/)
-   - Extract and place in Arduino Libraries folder
-   - **Why NewTone?** Avoids timer conflicts with ultrasonic sensors (proven in [Theremino project](https://projecthub.arduino.cc/tdelatorre/theremino-a-theremin-made-with-arduino-3e661f))
-
-2. **Hardware Connections**:
-   - Connect sensors to pins 5,6,9,10 as per pin configuration table
-   - Connect LED strip data to pin 3
-   - Connect audio output to pin 11 (if using speaker)
-   - Ensure proper power supply for all components
-
-3. **Upload Code**:
-   - Choose appropriate sketch for your hardware configuration
-   - **For beginners**: Start with `sensors_fastled_effects.ino`
-   - **For audio**: Use `sensors_json_output/sensors_json_output.ino`
-   - **For testing**: Use `speaker_test.ino` to verify audio hardware
-
-4. **Test Setup**:
-   - Open Serial Monitor (9600 baud)
-   - Verify sensor readings and JSON output
-   - Test LED effects by moving hands over sensors
-
-### TouchDesigner Setup
-
-1. **Open Project**: `touchdesigner/Po Tolo V2.5.toe`
-2. **Configure Serial Connection**:
-   - Set correct COM port in Serial DAT
-   - Verify 9600 baud rate matches Arduino
-3. **Use Parser Scripts**: Reference `scripts/sensor_parser.py` for JSON parsing
-4. **Effect Mapping**: Use orange correlation values for synchronized effects
-
-## Hardware Wiring Diagrams
-
-### Basic Sensor + LED Setup
-```
-Arduino Uno        HC-SR04 (Left)    HC-SR04 (Right)    LED Strip
-Pin 9        -->   Trig
-Pin 10       -->   Echo  
-Pin 5        -->                     Trig
-Pin 6        -->                     Echo
-Pin 3        -->                                        Data In
-5V           -->   VCC               VCC                5V/12V+
-GND          -->   GND               GND                GND
+### **Main System Testing (RECOMMENDED):**
+```bash
+# 1. Upload main system
+# 2. Open Serial Monitor
+# 3. Wave hands near sensors
+# 4. Should see JSON output + high-quality audio + LEDs
 ```
 
-### Audio Integration Setup
+### **Timer Audio Testing (EXPERIMENTAL):**
+```bash
+# 1. Add RC filter circuit first (mandatory)
+# 2. Upload timer_audio_player.ino
+# 3. Send 't' in Serial Monitor
+# 4. Should hear poor-quality demo audio sample
+# 5. Wave hands to trigger playback
 ```
-Arduino Pin 11 --> WWZMDiB XH-M543 Input
-XH-M543 Output --> Dayton Audio DAEX32QMB-4 Exciter
-12-24V Supply  --> XH-M543 Power Input
-```
 
-## Detection Parameters
+### **Expected Results:**
+- **Main System**: Professional-quality theremin sounds
+- **Timer Audio**: Distorted, muffled but recognizable audio
 
-### Sensor Range
-- **Minimum Distance**: 1cm (objects closer may not detect reliably)
-- **Maximum Distance**: 20cm (effective hand detection range)
-- **Update Rate**: ~20Hz (50ms delay between readings)
+---
 
-### Hand Detection Logic
-- **Single Hand**: Triggers interactive mode immediately
-- **Dual Hand**: Enhanced effects and special modes
-- **Averaging**: 5-sample rolling average prevents false triggers
-- **Timeout**: 10-second return to attract mode
+## 🔄 **Development Workflow**
 
-### Color Mapping (Interactive Mode)
-- **Far (20cm)**: Full Red `(255, 0, 0)`
-- **Close (1cm)**: Full Yellow `(255, 255, 0)`
-- **Mid-range**: Proportional Orange `(255, green_value, 0)`
-- **TouchDesigner Values**: 0.0 (red/far) to 1.0 (yellow/close)
+### **For Audio Development:**
+1. **STRONGLY RECOMMEND**: Keep using your main Mozzi system
+2. **If experimenting**: Try timer method but expect poor quality
+3. **For samples**: Consider SD card approach instead
+4. **Never go back**: To basic `analogWrite()` method
 
-## Troubleshooting
+### **For System Integration:**
+1. **Test modules independently**
+2. **Use main system** as integration base
+3. **Add new features** incrementally
+4. **Archive experimental code** in `99_ARCHIVE/`
 
-### Common Issues
-1. **No LED Response**: Check power supply, data pin connection, LED strip type
-2. **Erratic Sensor Readings**: Ensure stable 5V supply, check wiring
-3. **No Audio Output**: Verify amplifier power, speaker connections, pin 11 output
-4. **TouchDesigner Not Receiving Data**: Check COM port, baud rate, JSON format
+---
 
-### Testing Steps
-1. Run `speaker_test.ino` to verify audio hardware
-2. Use Serial Monitor to verify sensor readings
-3. Test with `sensors_string_output.ino` for basic functionality
-4. Gradually upgrade to more complex sketches
+## 📚 **Documentation**
 
-## Development Notes
+- **`TIMER_AUDIO_GUIDE.md`** - Complete timer audio implementation (with limitations)
+- **`AUDIO_IMPROVEMENTS.md`** - Audio quality research
+- **`AUDIO_RECOMMENDATION.md`** - Audio system recommendations
+- **`Solar_Shrine_Custom_Shield_Design.md`** - Hardware design
 
-- All sketches use **9600 baud rate** for serial communication
-- **50ms delay** between sensor readings for smooth operation  
-- **JSON format** provides maximum flexibility for TouchDesigner integration
-- **FastLED library** required for advanced lighting effects
-- **Power management** critical for LED strips >20 LEDs 
+---
+
+## 🚨 **Troubleshooting**
+
+### **Audio Issues:**
+- **No audio**: Check power supply, wiring, RC filter (timer method)
+- **Buzzer sounds**: You're using `analogWrite()` method (doesn't work)
+- **Distorted audio** (timer method): This is normal/expected
+- **Won't compile**: Check library installation, PROGMEM syntax
+
+### **System Issues:**
+- **Erratic sensors**: Check wiring, power supply stability
+- **LED problems**: Verify FastLED library, LED strip type
+- **JSON errors**: Check ArduinoJson version (v7.x)
+
+---
+
+## 🌟 **Recent Updates**
+
+- ✅ **Research-based assessment** of timer audio limitations
+- ✅ **Realistic quality expectations** for sample playback
+- ✅ **Comprehensive audio guide** (TIMER_AUDIO_GUIDE.md)
+- ⚠️ **Honest comparison** of audio methods
+- ✅ **Updated documentation** with realistic information
+
+---
+
+## 📞 **Final Recommendation**
+
+### **For Your Solar Shrine Project:**
+
+**🎯 KEEP YOUR CURRENT MOZZI SYSTEM** - It's superior in every way:
+- Higher audio quality than timer method
+- Unlimited duration vs ~1 second
+- Musical responsiveness vs poor sample quality
+- No additional hardware needed
+- Proven to work perfectly
+
+### **For Experimental Learning:**
+- **Timer method**: Only if you want to understand Arduino audio limitations
+- **SD card audio**: If you specifically need audio file playback
+- **External modules**: DFPlayer Mini for high-quality MP3 playback
+
+**Your existing system is already the best solution for your project!** 🎵 
