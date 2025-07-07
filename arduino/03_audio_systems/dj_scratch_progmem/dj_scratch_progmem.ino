@@ -1,6 +1,6 @@
 /*
- * DJ Scratch PROGMEM - ENHANCED SCRATCHING
- * Left hand = immediate play/stop, Right hand = rapid in/out scratching
+ * DJ Scratch PROGMEM - Optimized Version
+ * Left hand = play/stop, Right hand = scratch/speed control
  */
 
 #include <avr/pgmspace.h>
@@ -15,7 +15,8 @@
 // Audio state
 volatile int32_t sampleIndex = 0;
 volatile uint8_t sampleCounter = 0;
-volatile uint8_t playState = 0;  // 0=stopped, 1=playing
+volatile uint8_t playState = 0;
+volatile uint8_t playbackSpeed = 5;
 volatile int8_t scratchSpeed = 1;
 volatile bool isScratchMode = false;
 
@@ -29,10 +30,10 @@ void setup() {
   TCCR1A = _BV(COM1A1) | _BV(WGM11);
   TCCR1B = _BV(WGM13) | _BV(CS10);
   ICR1 = 399;
-  OCR1A = ICR1 / 2;  // Start silent
+  OCR1A = ICR1 / 2;
   TIMSK1 = _BV(OCIE1A);
   
-  Serial.println("DJ Ready - Enhanced Scratching");
+  Serial.println(F("DJ Ready"));
 }
 
 float readSensor(uint8_t trig, uint8_t echo) {
@@ -41,23 +42,21 @@ float readSensor(uint8_t trig, uint8_t echo) {
   digitalWrite(trig, LOW);
   
   unsigned long duration = pulseIn(echo, HIGH, 30000UL);
-  if (duration == 0) return 0.5;  // Very close
-  return duration * 0.034 / 2.0;  // Convert to cm
+  if (duration == 0) return 0.5;
+  return duration * 0.034 / 2.0;
 }
 
 ISR(TIMER1_COMPA_vect) {
   sampleCounter++;
   
-  // Variable speed based on scratch mode
-  uint8_t targetSpeed = isScratchMode ? 2 : 5;  // Faster when scratching
+  uint8_t currentSpeed = isScratchMode ? 2 : playbackSpeed;
   
-  if (sampleCounter >= targetSpeed) {
+  if (sampleCounter >= currentSpeed) {
     sampleCounter = 0;
     
     if (playState == 1) {
-      // Ensure bounds are correct
       if (sampleIndex < 0) sampleIndex = 0;
-      if (sampleIndex >= AUDIO_SAMPLE_COUNT) sampleIndex = 0;  // Loop
+      if (sampleIndex >= AUDIO_SAMPLE_COUNT) sampleIndex = 0;
       
       uint8_t sample = pgm_read_byte(&audioData[sampleIndex]);
       int16_t amp = ((int16_t)sample - 128) * 4;
@@ -65,14 +64,16 @@ ISR(TIMER1_COMPA_vect) {
       
       OCR1A = ((uint32_t)(amp + 128) * ICR1) / 255;
       
-      // Advance by scratch speed (more dramatic range)
-      sampleIndex += scratchSpeed;
-      
-      // Handle negative wraparound
-      if (sampleIndex < 0) sampleIndex = AUDIO_SAMPLE_COUNT - 1;
+      if (isScratchMode) {
+        sampleIndex += scratchSpeed;
+        if (sampleIndex < 0) sampleIndex = AUDIO_SAMPLE_COUNT - 1;
+        if (sampleIndex >= AUDIO_SAMPLE_COUNT) sampleIndex = 0;
+      } else {
+        sampleIndex++;
+        if (sampleIndex >= AUDIO_SAMPLE_COUNT) sampleIndex = 0;
+      }
       
     } else {
-      // Not playing - silence
       OCR1A = ICR1 / 2;
     }
   }
@@ -85,98 +86,86 @@ void loop() {
   bool leftHand = (d1 >= 1.0 && d1 <= 20.0);
   bool rightHand = (d2 >= 1.0 && d2 <= 20.0);
   
-  // LEFT HAND LOGIC - Immediate play/stop
+  // LEFT HAND - Play/Stop
   if (leftHand) {
     if (playState == 0) {
-      // Start playing from beginning
       playState = 1;
       sampleIndex = 0;
-      Serial.println("PLAY");
+      Serial.println(F("PLAY"));
     }
   } else {
     if (playState == 1) {
-      // Stop immediately
       playState = 0;
-      Serial.println("STOP");
+      Serial.println(F("STOP"));
     }
   }
   
-  // RIGHT HAND LOGIC - Rapid in/out detection for scratching
+  // RIGHT HAND - Scratch + Speed Control
   static bool prevRightHand = false;
-  static uint8_t transitionCount = 0;
   static unsigned long lastTransition = 0;
-  static unsigned long scratchTimer = 0;
+  static uint8_t transitionCount = 0;
   static int8_t scratchDirection = 1;
+  static unsigned long rightHandStartTime = 0;
+  static unsigned long lastRightHandDetected = 0;
   
-  // Detect state changes (in/out transitions)
+  if (rightHand) {
+    lastRightHandDetected = millis();
+  }
+  
   if (rightHand != prevRightHand) {
-    transitionCount++;
     lastTransition = millis();
-    
-    // Alternate scratch direction on each transition
+    transitionCount++;
     scratchDirection = -scratchDirection;
-    
-    Serial.print("TRANSITION ");
-    Serial.println(transitionCount);
   }
   
-  // Check for rapid transitions (scratching detected)
-  if (millis() - lastTransition < 200) {  // Within 200ms of last transition
-    if (transitionCount >= 2) {  // At least 2 transitions (in->out->in or out->in->out)
-      if (leftHand) {  // Only scratch when left hand is playing
-        isScratchMode = true;
-        scratchTimer = millis();
-        
-        // More dramatic scratch speeds based on transition count
-        if (transitionCount >= 6) {
-          scratchSpeed = scratchDirection * 8;  // Very fast scratch
-        } else if (transitionCount >= 4) {
-          scratchSpeed = scratchDirection * 5;  // Fast scratch
-        } else {
-          scratchSpeed = scratchDirection * 3;  // Medium scratch
-        }
-        
-        Serial.print("SCRATCH ACTIVE - Speed: ");
-        Serial.println(scratchSpeed);
-      }
-    }
-  } else {
-    // No recent transitions - reset
-    if (transitionCount > 0) {
+  if (rightHand && !prevRightHand) {
+    rightHandStartTime = millis();
+  }
+  
+  if (millis() - lastTransition > 500) {
+    transitionCount = 0;
+  }
+  
+  // Stop scratching if no right hand for 200ms
+  if (!rightHand && (millis() - lastRightHandDetected) > 200) {
+    if (isScratchMode) {
+      isScratchMode = false;
+      scratchSpeed = 1;
+      playbackSpeed = 5;
       transitionCount = 0;
-      Serial.println("SCRATCH RESET");
+      Serial.println(F("NORMAL"));
     }
   }
-  
-  // Scratch mode timeout
-  if (isScratchMode && (millis() - scratchTimer > 300)) {
-    isScratchMode = false;
-    scratchSpeed = 1;  // Back to normal speed
-    Serial.println("SCRATCH TIMEOUT");
+  // Scratch mode - rapid transitions
+  else if (rightHand && transitionCount >= 2 && (millis() - lastTransition) < 300) {
+    isScratchMode = true;
+    
+    if (transitionCount >= 4) {
+      scratchSpeed = scratchDirection * 6;
+      Serial.println(F("SCRATCH+"));
+    } else {
+      scratchSpeed = scratchDirection * 3;
+      Serial.println(F("SCRATCH"));
+    }
   }
-  
-  // Normal playback when not scratching
-  if (!isScratchMode) {
+  // Distance speed control
+  else if (rightHand && (millis() - rightHandStartTime) > 300) {
+    isScratchMode = false;
     scratchSpeed = 1;
+    
+    float ratio = (d2 - 1.0) / (20.0 - 1.0);
+    ratio = constrain(ratio, 0.0, 1.0);
+    playbackSpeed = (uint8_t)(2 + (13 * ratio));
+    
+    static unsigned long lastSpeedReport = 0;
+    if (millis() - lastSpeedReport > 2000) {
+      Serial.print(F("SPEED:"));
+      Serial.println(playbackSpeed);
+      lastSpeedReport = millis();
+    }
   }
   
   prevRightHand = rightHand;
   
-  // Debug output (minimal)
-  static unsigned long lastDebug = 0;
-  if (millis() - lastDebug > 500) {
-    Serial.print("L:");
-    Serial.print(leftHand ? "1" : "0");
-    Serial.print(" R:");
-    Serial.print(rightHand ? "1" : "0");
-    Serial.print(" Trans:");
-    Serial.print(transitionCount);
-    Serial.print(" Scratch:");
-    Serial.print(isScratchMode ? "ON" : "OFF");
-    Serial.print(" Speed:");
-    Serial.println(scratchSpeed);
-    lastDebug = millis();
-  }
-  
-  delay(30);  // Faster loop for better transition detection
+  delay(30);
 } 
