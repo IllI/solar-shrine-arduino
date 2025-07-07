@@ -110,6 +110,8 @@ Arduino IDE → Tools → Manage Libraries:
 - **minimin_theremin_test/**: Proven MiniMin design with vibrato
 - **musical_theremin_warm/**: Research-based musical theremin with warm sound
 - **alien_sound_effect/**: Experimental synthesized effects
+- **progmem_audio_player/**: ⭐ Crystal clear voice playback from flash memory
+- **dj_scratch_progmem/**: 🎧 DJ scratching effects with sonar control
 
 **Audio Quality Research:**
 - **Frequency Range**: 120-1500Hz proven optimal for musical theremin
@@ -217,6 +219,19 @@ Tools → Manage Libraries → Search & Install:
 - **MiniMin Test**: Proven design with gentle vibrato
 - **Musical Warm**: Research-based sine wave with 120-1500Hz range
 - **Alien Effect**: Experimental synthesized sounds
+
+### **🎧 DJ Scratch Audio System (NEW!):**
+**Location**: `03_audio_systems/dj_scratch_progmem/`
+- **🎵 Crystal Clear Playback**: Phase Correct PWM for speech quality
+- **🖐️ Gesture Control**: Left hand = Play/Pause, Right hand = Scratch effects
+- **🔄 Real-Time Scratching**: Variable speed forward/backward playback
+- **💾 Flash Storage**: 26KB audio stored in PROGMEM (no SD card)
+- **📢 Loud Volume**: 4x amplification with 1kΩ RC filter
+
+**Control Scheme:**
+- **Left Hand**: Wave to play/pause, hold close to toggle loop
+- **Right Hand**: Quick movements trigger scratch mode (forward/backward)
+- **Speed Control**: Hand velocity controls playback speed (0.1x to 4.0x)
 
 ### **Audio Hardware Requirements:**
 - **12V Power Supply** (2A+ recommended)
