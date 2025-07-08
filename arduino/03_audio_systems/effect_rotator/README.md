@@ -1,183 +1,59 @@
-# 🎵 Solar Shrine - Effect Rotator System
+# Effect Rotator - Minimal Version
 
-**Professional audio effect rotation system with conditional compilation**
+## Overview
+This is a **minimal modification** of the proven `dj_scratch_progmem.ino` that adds 3 additional effects while preserving 99% of the original DJ Scratch code.
 
-## 🎯 Overview
+## Memory Optimization
+- **Original DJ Scratch**: 31400 bytes (97%) ✅ WORKS
+- **This version**: Should be very close to 97% since it's 99% identical code
 
-The Effect Rotator solves the fundamental library conflict problem by using **conditional compilation** - only ONE effect is compiled at a time, preventing conflicts between Mozzi and Timer1 ISR approaches.
+## Effects
+1. **Effect 0: DJ Scratch** (100% unchanged from original)
+   - Left hand = play/stop
+   - Right hand = scratch/speed control  
+   - Uses 159KB PROGMEM audio data
 
-## 📋 Available Effects
+2. **Effect 1: Square Wave Theremin** (minimal synthesis)
+   - Left hand = play/stop
+   - Right hand = ignored (no scratch on synth effects)
 
-| Effect | Library | Memory Usage | Hardware Compatibility |
-|--------|---------|-------------|----------------------|
-| **1. Musical Theremin** | Mozzi | ~8KB | Arduino Uno ✅ |
-| **2. Alien Sound** | Mozzi | ~10KB | Arduino Uno ✅ |
-| **3. Robots Talking** | Mozzi | ~9KB | Arduino Uno ✅ |
-| **4. DJ Scratch** | Timer1 ISR + PROGMEM | ~160KB | Arduino Mega recommended ⚠️ |
+3. **Effect 2: Alien Sound** (different square wave pattern)
+   - Left hand = play/stop
+   - Right hand = ignored
 
-## 🔧 Effect Details
+4. **Effect 3: Robot Talking** (third wave pattern)
+   - Left hand = play/stop
+   - Right hand = ignored
 
-### Effect 1: Musical Theremin
-- **Library**: Mozzi with MIDI note mapping
-- **Features**: Musical scale quantization, vibrato, smooth frequency transitions
-- **Sound**: Clean musical tones with C4-C6 range
-- **Best for**: Melodic performances, musical applications
+## Auto-Rotation
+- Automatically cycles through effects after 5 seconds of no hand detection
+- Serial output shows current effect: "Effect 0", "Effect 1", etc.
 
-### Effect 2: Alien Sound  
-- **Library**: Mozzi with echo effects
-- **Features**: Wide frequency range, real-time echo processing
-- **Sound**: Sci-fi alien tones with ethereal echo
-- **Best for**: Atmospheric effects, space-themed applications
+## Key Design Decisions
+1. **Preserve working DJ Scratch**: Effect 0 is 100% identical to proven code
+2. **Minimal ISR modifications**: Just added simple synthesis in else branch
+3. **Disable scratch on synth effects**: Only DJ Scratch uses complex scratch logic
+4. **Simple synthesis**: Basic square wave patterns to minimize memory usage
 
-### Effect 3: Robots Talking
-- **Library**: Mozzi with note persistence
-- **Features**: Robot-voice frequencies, note holding logic
-- **Sound**: Robotic speech-like tones
-- **Best for**: Interactive installations, sci-fi themes
+## Memory Usage
+Added only 7 bytes of global variables:
+- `uint8_t currentEffect = 0;` (1 byte)
+- `unsigned long lastHandTime = 0;` (4 bytes)  
+- `uint16_t synthPhase = 0;` (2 bytes)
 
-### Effect 4: DJ Scratch ⚡ **FIXED**
-- **Library**: Timer1 ISR with PROGMEM audio data
-- **Features**: **EXACT replica of original DJ Scratch effect**
-- **Sound**: Crystal clear WAV file playback with real-time scratching
-- **Memory**: 159KB (requires Arduino Mega for full functionality)
+## Files Required
+- `effect_rotator_minimal.ino` - Main program
+- `audio_data.h` - 159KB PROGMEM audio data (copied from dj_scratch_progmem)
 
-#### DJ Scratch Controls:
-- **Left Hand**: Play/Stop toggle
-- **Right Hand**: Scratch effects
-  - **Quick movements**: Trigger scratch mode with forward/backward playback
-  - **Distance control**: Variable speed playback (closer = faster)
-  - **Rapid transitions**: Enhanced scratch effects with speed multipliers
+## Operation
+1. System starts in Effect 0 (DJ Scratch)
+2. Use left hand to play/stop any effect
+3. Use right hand for scratch/speed control (DJ Scratch only)
+4. Remove hands for 5 seconds to auto-rotate to next effect
+5. Cycle: DJ Scratch → Square Theremin → Alien Sound → Robot Talking → repeat
 
-## 🚀 Quick Start
-
-### Step 1: Select Effect
-Edit `effect_rotator.ino` and uncomment ONE effect:
-
-```cpp
-#define EFFECT_MUSICAL_THEREMIN    // Effect 1: Musical Theremin (Mozzi)
-// #define EFFECT_ALIEN_SOUND      // Effect 2: Alien Sound (Mozzi) 
-// #define EFFECT_ROBOTS_TALKING   // Effect 3: Robots Talking (Mozzi)
-// #define EFFECT_DJ_SCRATCH       // Effect 4: DJ Scratch (Timer1 ISR)
-```
-
-### Step 2: Hardware Setup
-- **Sensors**: Pins 10,11 (left) and 5,6 (right)
-- **Audio**: Pin 9 with RC filter (1kΩ + 10nF)
-- **LED**: Pin 13 for status indication
-
-### Step 3: Upload and Test
-1. Connect Arduino to computer
-2. Upload the sketch
-3. Open Serial Monitor (9600 baud)
-4. Wave hands over sensors to activate
-
-## 📊 Memory Analysis
-
-### Arduino Uno (32KB Flash)
-- **Effects 1-3**: ✅ Fit comfortably with room for features
-- **Effect 4**: ⚠️ 159KB - requires Arduino Mega
-
-### Arduino Mega (256KB Flash)
-- **All Effects**: ✅ Plenty of room for any effect
-
-## 🔄 Auto-Rotation System
-
-The system automatically prompts for effect rotation:
-1. **Hands detected**: Effect activates, LED lights up
-2. **Hands removed**: 5-second countdown begins
-3. **After 5 seconds**: System displays rotation message
-4. **Manual change**: Upload sketch with different `#define`
-
-## 🎛️ Technical Implementation
-
-### Conditional Compilation Benefits:
-- **No library conflicts**: Only one audio system active
-- **Optimal memory usage**: Only selected effect consumes memory
-- **Full feature support**: Each effect runs with complete functionality
-- **Easy switching**: Change one line and re-upload
-
-### DJ Scratch Technical Details:
-**FIXED** - Now works exactly like the original `dj_scratch_progmem.ino`:
-
-```cpp
-// Timer1 ISR for PWM audio output
-ISR(TIMER1_COMPA_vect) {
-  // Reads samples from PROGMEM
-  uint8_t sample = pgm_read_byte(&audioData[sampleIndex]);
-  // Outputs to PWM with 4x amplification
-  OCR1A = ((uint32_t)(amp + 128) * ICR1) / 255;
-}
-```
-
-- **Audio Data**: 26,285 samples (3.29 seconds) stored in PROGMEM
-- **Sample Rate**: 8kHz with Timer1 interrupt
-- **Scratch Logic**: Velocity-based scratch detection with direction control
-- **Speed Control**: Distance-based playback speed (5x to 15x slower)
-
-## 🐛 Troubleshooting
-
-### DJ Scratch Not Working?
-- ✅ Ensure `audio_data.h` is in the same folder as the sketch
-- ✅ Use Arduino Mega for full 159KB audio data
-- ✅ Check Timer1 PWM connections (Pin 9)
-- ✅ Verify RC filter: 1kΩ resistor + 10nF capacitor
-
-### Compilation Errors?
-- ✅ Only ONE `#define` should be uncommented
-- ✅ Install Mozzi library for effects 1-3
-- ✅ Ensure `audio_data.h` exists for effect 4
-
-### No Audio Output?
-- ✅ Check Pin 9 connection to amplifier
-- ✅ Verify RC filter components
-- ✅ Test with known working audio source
-- ✅ Ensure proper grounding
-
-## 🔧 Advanced Configuration
-
-### Custom Audio for DJ Scratch:
-1. Replace `resample.wav` with your audio file
-2. Run: `python convert_audio_progmem.py your_audio.wav`
-3. Copy new `audio_data.h` to effect_rotator folder
-4. Upload sketch
-
-### Modify Effect Parameters:
-Each effect has configurable parameters in the code:
-- **Frequency ranges**: MIN_FREQ, MAX_FREQ
-- **Vibrato settings**: VIBRATO_RATE, VIBRATO_DEPTH  
-- **Audio volume**: audioVolume values
-- **Sensor ranges**: MIN_RANGE, MAX_RANGE
-
-## 📈 Performance Comparison
-
-| Feature | Original Effects | Effect Rotator |
-|---------|------------------|----------------|
-| **Library Conflicts** | ❌ Major issues | ✅ Eliminated |
-| **Memory Usage** | ❌ Inefficient | ✅ Optimized |
-| **Audio Quality** | ✅ Good | ✅ Identical |
-| **Switching Speed** | ❌ Manual wiring | ✅ Code change |
-| **Maintenance** | ❌ Complex | ✅ Simple |
-
-## 🎉 Success Stories
-
-**DJ Scratch Effect**: 
-- **Before**: Completely broken, no audio output
-- **After**: **EXACT replica** of original with full functionality
-- **Result**: Crystal clear WAV playback with real-time scratching
-
-**Library Conflicts**: 
-- **Before**: Mozzi + Timer1 ISR caused compilation errors
-- **After**: Conditional compilation eliminates all conflicts
-- **Result**: Professional-grade audio synthesis
-
-## 🏆 Best Practices
-
-1. **Start with Effect 1** (Musical Theremin) for testing
-2. **Use Arduino Mega** for Effect 4 (DJ Scratch)
-3. **Test sensor ranges** before finalizing installation
-4. **Document your effect preference** for future reference
-5. **Keep RC filter components** consistent across effects
-
----
-
-**🎵 Ready to rotate through professional audio effects!** 
+## Why This Approach Works
+- Builds on proven DJ Scratch codebase (97% memory usage)
+- Minimal additions preserve memory efficiency
+- Simple synthesis doesn't require additional libraries
+- Auto-rotation provides variety without complexity 
