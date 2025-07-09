@@ -155,7 +155,7 @@ void loop() {
     
     float ratio = (d2 - 1.0) / (20.0 - 1.0);
     ratio = constrain(ratio, 0.0, 1.0);
-    playbackSpeed = (uint8_t)(2 + (13 * ratio));
+    playbackSpeed = (uint8_t)(5 + (10 * ratio));  // 5 (normal) to 15 (slower)
     
     static unsigned long lastSpeedReport = 0;
     if (millis() - lastSpeedReport > 2000) {
