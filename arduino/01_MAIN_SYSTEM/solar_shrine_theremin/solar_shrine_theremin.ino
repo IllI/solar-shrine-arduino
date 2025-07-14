@@ -48,7 +48,7 @@ NewPing sonar2(trigPin2, echoPin2, 200); // Right sensor, max 200cm
 
 // LED strip configuration
 #define LED_PIN 3
-#define NUM_LEDS 60        // Adjust to your strip length
+#define NUM_LEDS 120        // Adjust to your strip length
 #define LED_TYPE WS2812B   
 #define COLOR_ORDER GRB    
 
@@ -125,6 +125,12 @@ void setup() {
   osc.setFreq(MIN_FREQ);  // Set initial frequency
 #endif
   
+  // Sensor pin setup (CRITICAL - was missing!)
+  pinMode(trigPin1, OUTPUT);
+  pinMode(echoPin1, INPUT);
+  pinMode(trigPin2, OUTPUT);
+  pinMode(echoPin2, INPUT);
+  
   // FastLED setup
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
   FastLED.setBrightness(150);
@@ -176,6 +182,41 @@ void playStartupSequence() {
   fill_solid(leds, NUM_LEDS, CRGB::Black);
   FastLED.show();
 #endif
+}
+
+// Direct sensor reading with HC-SR04 reset fix (replaces NewPing)
+float readDistanceWithReset(int trigPin, int echoPin) {
+  // Check if echo pin is stuck HIGH from previous failed reading
+  if (digitalRead(echoPin) == HIGH) {
+    // Apply the fix: briefly drive echo pin LOW to reset sensor
+    pinMode(echoPin, OUTPUT);
+    digitalWrite(echoPin, LOW);
+    delayMicroseconds(10);
+    pinMode(echoPin, INPUT);
+    delayMicroseconds(10);
+  }
+  
+  // Send trigger pulse
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  // Wait for echo
+  unsigned long duration = pulseIn(echoPin, HIGH, 50000UL); // 50ms timeout
+  
+  if (duration == 0) {
+    return 0; // No echo detected (same as troubleshoot script)
+  }
+  
+  float distance = (duration * 0.0343) / 2.0;
+  
+  if (distance > MAX_RANGE) {
+    return MAX_RANGE + 10; // Return invalid value for out of range
+  }
+  
+  return distance;
 }
 
 float readDistanceNewPing(NewPing &sensor) {
@@ -367,9 +408,20 @@ void updateLEDs(float avgDistance1, float avgDistance2, bool handsDetected, unsi
 void loop() {
   unsigned long currentTime = millis();
   
-  // Read sensors using NewPing
-  float distance1 = readDistanceNewPing(sonar1);
-  float distance2 = readDistanceNewPing(sonar2);
+  // Read sensors - left sensor uses reset fix, right sensor uses working NewPing
+  float distance1 = readDistanceWithReset(trigPin1, echoPin1);  // Left sensor with reset fix
+  float distance2 = readDistanceNewPing(sonar2);                // Right sensor (working fine)
+  
+  // Debug output for left sensor (remove after testing)
+  static unsigned long lastDebugTime = 0;
+  if (currentTime - lastDebugTime > 1000) {  // Debug every second
+    Serial.print("DEBUG - Raw distances: Left=");
+    Serial.print(distance1);
+    Serial.print("cm, Right=");
+    Serial.print(distance2);
+    Serial.println("cm");
+    lastDebugTime = currentTime;
+  }
   
   // Update sample arrays
   updateDistanceSamples(distance1, distance2);
