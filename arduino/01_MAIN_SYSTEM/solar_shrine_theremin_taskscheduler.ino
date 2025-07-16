@@ -2,11 +2,12 @@
  * Solar Shrine with TaskScheduler - Multi-Effect Audio System
  * Handles JSON output, effect rotation, LEDs, and audio concurrently
  * Uses TaskScheduler for proper concurrent process management
+ * Optimized for Arduino Mega 2560
  * 
- * Hardware:
+ * Hardware (Arduino Mega 2560):
  * - 2x HC-SR04 ultrasonic sensors (pins 5,6,10,11)
  * - WS2812B/WS2815 LED strip (pin 3)  
- * - Audio output on pin 9
+ * - Audio: Pin 12 → 1K resistor → Amplifier right channel (left channel + ground → ground)
  * 
  * Libraries Required:
  * - TaskScheduler (install via Library Manager)

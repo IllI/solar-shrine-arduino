@@ -130,7 +130,7 @@ For **professional synthesizer-quality audio** with multiple waveforms:
 3. **Install Mozzi**
 
 ### Note: 
-Mozzi is more complex and uses different pins (pin 9 for audio output). The Mozzi implementation I provided earlier had errors - if you want to try Mozzi, I can create a corrected version.
+Mozzi is more complex and uses different pins (pin 12 for audio output on Arduino Mega 2560). The current Mozzi implementation works with the Timer1 OC1B output.
 
 ---
 
@@ -150,10 +150,10 @@ Mozzi is more complex and uses different pins (pin 9 for audio output). The Mozz
 
 ## 🔧 **Hardware Setup**
 
-### For Volume3 (Recommended):
+### For Volume3 (Arduino Mega 2560):
 ```
-Arduino Pin 9  →  Speaker +
-Arduino GND    →  Speaker -
+Arduino Pin 12  →  1K resistor  →  Amplifier Right Channel
+Arduino GND     →  Amplifier Left Channel + Ground
 ```
 
 ### Optional Volume Control:
@@ -180,7 +180,7 @@ Arduino GND    →  Speaker -
 ### To Test:
 1. **Install Volume3** via Library Manager
 2. **Upload** `01_MAIN_SYSTEM/solar_shrine_theremin/solar_shrine_theremin.ino`
-3. **Connect speaker** to pin 9 and GND
+3. **Connect audio**: Pin 12 → 1K resistor → Amplifier right channel, GND → Amplifier left channel + ground
 4. **Enjoy smooth, volume-controlled theremin sounds!**
 
 ---

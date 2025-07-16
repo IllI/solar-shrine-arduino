@@ -1,21 +1,23 @@
 /*
  * DJ Scratch PROGMEM - Arduino Mega 2560 Version
  * Left hand = play/stop, Right hand = scratch/speed control
- * Optimized for Arduino Mega 2560 with Timer1 OC1B PWM audio output
  * 
- * Hardware (Arduino Mega 2560):
- * - Audio: Pin 12 → 1K resistor → Amplifier right channel (left channel + ground → ground)
- * - Left sensor: pins 10/11, Right sensor: pins 5/6
+ * MEGA CHANGES:
+ * - Audio output moved to pin 12 (Timer1 OC1B on Mega)
+ * - Pin 9 already used for audio output (user's hardware)
+ * - Pin 11 used for sensor echo (user's hardware)
+ * - Left sensor kept on pins 10/11 (echo pin matches hardware)
  */
 
 #include <avr/pgmspace.h>
 #include "audio_data.h"
 
-// Pins
-#define TRIG1 10
-#define ECHO1 11
-#define TRIG2 5  
-#define ECHO2 6
+// Pins - UPDATED FOR MEGA WITH HARDWARE CONSTRAINTS
+#define TRIG1 10  // Left sensor trigger
+#define ECHO1 11  // Left sensor echo (user's hardware)
+#define TRIG2 5   // Right sensor trigger
+#define ECHO2 6   // Right sensor echo
+#define AUDIO_PIN 12  // Timer1 OC1B output on Mega (pin 12)
 
 // Audio state
 volatile int32_t sampleIndex = 0;
@@ -27,7 +29,7 @@ volatile bool isScratchMode = false;
 
 void setup() {
   Serial.begin(9600);
-  pinMode(12, OUTPUT);  // Audio output pin 12 (Timer1 OC1B)
+  pinMode(AUDIO_PIN, OUTPUT);  // Pin 12 for Mega
   pinMode(TRIG1, OUTPUT); pinMode(ECHO1, INPUT);
   pinMode(TRIG2, OUTPUT); pinMode(ECHO2, INPUT);
   
@@ -38,8 +40,9 @@ void setup() {
   OCR1B = ICR1 / 2;                   // 50% duty cycle (silence)
   TIMSK1 = _BV(OCIE1B);               // Enable Timer1 Compare B interrupt
   
-  Serial.println(F("DJ Ready - Mega 2560 Version"));
+  Serial.println(F("DJ Ready - Mega Version"));
   Serial.println(F("Audio on pin 12 (Timer1 OC1B)"));
+  Serial.println(F("Left sensor: pins 10/11, Right sensor: pins 5/6"));
 }
 
 float readSensor(uint8_t trig, uint8_t echo) {

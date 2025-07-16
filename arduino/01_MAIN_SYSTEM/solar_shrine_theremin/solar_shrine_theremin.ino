@@ -1,12 +1,13 @@
 /*
  * Solar Shrine with Theremin Integration
  * Dual-mode lighting (attract/interactive) + Mozzi-based theremin audio generation
- * Uses Mozzi library for high-quality audio synthesis (pin 9 compatible!)
+ * Optimized for Arduino Mega 2560 with Timer1 OC1B PWM audio output
  * 
- * Hardware:
- * - 2x HC-SR04 ultrasonic sensors (pins 5,6,10,11) - moved for Mozzi compatibility
+ * Hardware (Arduino Mega 2560):
+ * - 2x HC-SR04 ultrasonic sensors (pins 5,6,10,11)
  * - WS2812B/WS2815 LED strip (pin 3)
- * - WWZMDiB XH-M543 amplifier + Dayton Audio DAEX32QMB-4 exciter (pin 9)
+ * - Audio: Pin 12 → 1K resistor → Amplifier right channel (left channel + ground → ground)
+ * - WWZMDiB XH-M543 amplifier + Dayton Audio DAEX32QMB-4 exciter
  * 
  * Libraries Required:
  * - FastLED
@@ -54,8 +55,8 @@ NewPing sonar2(trigPin2, echoPin2, 200); // Right sensor, max 200cm
 
 CRGB leds[NUM_LEDS];
 
-// Audio pin - now on pin 9 (perfect for Mozzi!)
-const int AUDIO_PIN = 9;
+// Audio pin - Arduino Mega 2560 Timer1 OC1B PWM output
+const int AUDIO_PIN = 12;
 
 #if ENABLE_AUDIO
 // Mozzi audio variables (now pin 9 compatible!)
@@ -411,17 +412,6 @@ void loop() {
   // Read sensors - left sensor uses reset fix, right sensor uses working NewPing
   float distance1 = readDistanceWithReset(trigPin1, echoPin1);  // Left sensor with reset fix
   float distance2 = readDistanceNewPing(sonar2);                // Right sensor (working fine)
-  
-  // Debug output for left sensor (remove after testing)
-  static unsigned long lastDebugTime = 0;
-  if (currentTime - lastDebugTime > 1000) {  // Debug every second
-    Serial.print("DEBUG - Raw distances: Left=");
-    Serial.print(distance1);
-    Serial.print("cm, Right=");
-    Serial.print(distance2);
-    Serial.println("cm");
-    lastDebugTime = currentTime;
-  }
   
   // Update sample arrays
   updateDistanceSamples(distance1, distance2);

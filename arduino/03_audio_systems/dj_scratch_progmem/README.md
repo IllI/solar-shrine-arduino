@@ -31,9 +31,9 @@
 - **Left Sensor**: Pins 10 (Trig), 11 (Echo)
 - **Right Sensor**: Pins 5 (Trig), 6 (Echo)
 
-### **Audio Output**
-- **Pin 9**: Audio output (Timer1 PWM)
-- **RC Filter**: 1kΩ resistor + 10nF capacitor
+### **Audio Output** (Arduino Mega 2560)
+- **Pin 12**: Audio output (Timer1 OC1B PWM)
+- **Wiring**: Right channel → 1K resistor → Pin 12, Left channel + Ground → Ground
 - **Amplifier**: Connect to WWZMDiB XH-M543
 
 ### **Range Settings**

@@ -1,22 +1,25 @@
 /*
  * Solar Shrine - Speaker Test & Audio Integration
  * Tests the WWZMDiB XH-M543 amplifier with Dayton Audio DAEX32QMB-4 exciter
+ * Optimized for Arduino Mega 2560
  * 
- * Pin Configuration:
- * - Pin 11: Audio output to amplifier
- * - Pins 5,6,9,10: Ultrasonic sensors (optional for audio-reactive testing)
+ * Pin Configuration (Arduino Mega 2560):
+ * - Pin 12: Audio output → 1K resistor → Amplifier right channel
+ * - Pins 5,6,10,11: Ultrasonic sensors (optional for audio-reactive testing)
  * 
  * Hardware:
+ * - Arduino Mega 2560 (Timer1 OC1B PWM output)
+ * - Wiring: Right channel → 1K resistor → Pin 12, Left channel + Ground → Ground
  * - WWZMDiB XH-M543 High Power Digital Amplifier Board TPA3116D2
  * - Dayton Audio DAEX32QMB-4 Quad Feet Mega Bass 32mm Exciter 40W 4 Ohm
  */
 
-// Audio pin
-const int AUDIO_PIN = 11;
+// Audio pin - Arduino Mega 2560 Timer1 OC1B
+const int AUDIO_PIN = 12;
 
-// Sensor pins (optional for audio-reactive testing)
-const int trigPin1 = 9;
-const int echoPin1 = 10;
+// Sensor pins (optional for audio-reactive testing) - Arduino Mega 2560
+const int trigPin1 = 10;
+const int echoPin1 = 11;
 const int trigPin2 = 5;
 const int echoPin2 = 6;
 
@@ -55,8 +58,8 @@ void setup() {
   pinMode(echoPin2, INPUT);
   
   Serial.println("Solar Shrine - Speaker Test Starting");
-  Serial.println("Hardware: WWZMDiB XH-M543 + Dayton Audio DAEX32QMB-4");
-  Serial.println("Testing audio output on pin 11");
+  Serial.println("Hardware: Arduino Mega 2560 + WWZMDiB XH-M543 + Dayton Audio DAEX32QMB-4");
+  Serial.println("Testing audio output on pin 12 (Timer1 OC1B)");
   
   // Play startup sequence
   playStartupSequence();

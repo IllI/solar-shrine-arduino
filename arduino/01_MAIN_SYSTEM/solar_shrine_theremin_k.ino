@@ -43,6 +43,9 @@ CRGB leds[NUM_LEDS];
 // Audio pin - Arduino Mega 2560 Timer1 OC1B
 const int AUDIO_PIN = 12;
 
+// Volume control - simple percentage reduction
+const float VOLUME_REDUCTION = 0.1;  // 30% volume (adjust between 0.1-1.0)
+
 // Range constants (in cm)
 const float MIN_RANGE = 1.0;
 const float MAX_RANGE = 20.0;
@@ -63,7 +66,7 @@ LightMode currentMode = ATTRACT_MODE;
 unsigned long lastHandDetectedTime = 0;
 const unsigned long INTERACTIVE_TIMEOUT = 10000;  // 10 seconds
 unsigned long lastToneTime = 0;
-const unsigned long TONE_UPDATE_INTERVAL = 30;    // Update tone every 30ms
+const unsigned long TONE_UPDATE_INTERVAL = 5;    // Update tone every 5ms
 
 // Attract mode variables
 const float ATTRACT_PERIOD = 5000.0;  // 5 seconds in milliseconds
@@ -81,11 +84,11 @@ bool samplesInitialized = false;
 CRGB lastLeftColor = CRGB::Yellow;
 CRGB lastRightColor = CRGB::Yellow;
 
-// Theremin state
+// Theremin state with smoothing
 bool thereminActive = false;
 float currentFrequency = 0;
 float targetFrequency = 0;
-const float FREQ_SMOOTHING = 0.15;  // Frequency smoothing factor
+const float FREQ_SMOOTHING = 0.2;  // Frequency smoothing factor
 
 void setup() {
   Serial.begin(9600);
@@ -106,17 +109,23 @@ void setup() {
   }
   
   // Audio test - play startup sequence
-  playStartupSequence();
+  TCCR2B = TCCR2B & B11111000 | B00000001;
+playStartupSequence();
 }
 
 void playStartupSequence() {
-  // Play a pleasant startup melody
+  // Play a pleasant startup melody with reduced volume
   int melody[] = {220, 277, 330, 440}; // A3, C#4, E4, A4
   for (int i = 0; i < 4; i++) {
+    // Volume control: shorter tone duration with pauses
+    int toneDuration = 200 * VOLUME_REDUCTION;
+    int pauseDuration = 200 - toneDuration;
+    
     NewTone(AUDIO_PIN, melody[i]);
-    delay(200);
+    delay(toneDuration);
+    NewTone(AUDIO_PIN, 0); // Stop tone
+    delay(pauseDuration);
   }
-  NewTone(AUDIO_PIN, 0); // Stop tone
 }
 
 float readDistanceNewPing(NewPing &sensor) {
@@ -221,7 +230,7 @@ float calculateThereminFrequency(float distance1, float distance2, bool inRange1
     
     // Add harmonic modulation based on hand difference
     if (difference > 2.0) {
-      float modulation = sin(millis() * 0.01) * 50; // Vibrato effect
+      float modulation = sin(millis() * 0.005) * 20; // Gentle vibrato effect
       frequency += modulation;
     }
     
@@ -243,20 +252,28 @@ float calculateThereminFrequency(float distance1, float distance2, bool inRange1
 
 void updateThereminAudio(float frequency) {
   if (frequency > 0) {
-    if (!thereminActive || abs(currentFrequency - frequency) > 5) {
-      // Smooth frequency transitions
-      targetFrequency = frequency;
-      currentFrequency += (targetFrequency - currentFrequency) * FREQ_SMOOTHING;
-      
-      NewTone(AUDIO_PIN, (unsigned int)currentFrequency);
-      thereminActive = true;
-    }
+    // Smooth frequency transitions
+    targetFrequency = frequency;
+    currentFrequency += (targetFrequency - currentFrequency) * FREQ_SMOOTHING;
+
+    // Ensure pin is OUTPUT before playing tone
+    pinMode(AUDIO_PIN, OUTPUT);
+    // Play pulsed tone for lower volume
+    int pulseOn = 10;  // ms ON
+    int pulseOff = 40; // ms OFF
+    NewTone(AUDIO_PIN, (unsigned int)currentFrequency);
+    //delay(pulseOn);
+    NewTone(AUDIO_PIN, 0); // Silence
+    //delay(pulseOff);
+    thereminActive = true;
   } else {
     if (thereminActive) {
-      NewTone(AUDIO_PIN, 0); // Stop tone
+      //NewTone(AUDIO_PIN, 0); // Stop tone
       thereminActive = false;
       currentFrequency = 0;
     }
+    digitalWrite(AUDIO_PIN, LOW); // Ensure pin is LOW
+    pinMode(AUDIO_PIN, INPUT);    // Tri-state the pin to fully disconnect
   }
 }
 
@@ -337,7 +354,7 @@ void loop() {
   // Update LED effects
   updateLEDs(avgDistance1, avgDistance2, handsDetected, currentTime);
   
-  // Update theremin audio (less frequently for smoother sound)
+  // Update theremin audio (with better timing for smooth sound)
   if (currentTime - lastToneTime >= TONE_UPDATE_INTERVAL) {
     float thereminFreq = calculateThereminFrequency(avgDistance1, avgDistance2, inRange1, inRange2);
     updateThereminAudio(thereminFreq);
@@ -371,5 +388,5 @@ void loop() {
   serializeJson(doc, Serial);
   Serial.println();
   
-  delay(20);  // Faster loop for smoother theremin response
-} 
+  delay(10);  // Faster loop for smoother theremin response
+}

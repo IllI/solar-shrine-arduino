@@ -294,13 +294,13 @@ void setupDJScratch() {
     djAudioBuffer[i] = 128 + (sin(i * 0.1) * 100); // Simple sine wave
   }
   
-  // Setup Timer1 for DJ scratch (from dj_scratch_progmem approach)
-  pinMode(9, OUTPUT);
-  TCCR1A = _BV(COM1A1) | _BV(WGM11);
+  // Setup Timer1 for DJ scratch (from dj_scratch_progmem approach) - Arduino Mega 2560
+  pinMode(12, OUTPUT);  // Pin 12 (Timer1 OC1B)
+  TCCR1A = _BV(COM1B1) | _BV(WGM11);
   TCCR1B = _BV(WGM13) | _BV(CS10);
   ICR1 = 399;
-  OCR1A = ICR1 / 2;
-  TIMSK1 = _BV(OCIE1A);
+  OCR1B = ICR1 / 2;
+  TIMSK1 = _BV(OCIE1B);
   
   state.timer1Active = true;
 }

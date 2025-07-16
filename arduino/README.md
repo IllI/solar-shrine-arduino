@@ -80,16 +80,18 @@ Arduino IDE → Tools → Manage Libraries:
 
 ## 🔧 **Hardware Configuration**
 
-### **Standard Pin Layout** (Used across all systems)
+### **Standard Pin Layout** (Arduino Mega 2560)
 | Component | Pins | Description |
 |-----------|------|-------------|
-| **Ultrasonic Sensor 1** | 9 (Trig), 10 (Echo) | Left hand detection |
+| **Ultrasonic Sensor 1** | 10 (Trig), 11 (Echo) | Left hand detection |
 | **Ultrasonic Sensor 2** | 5 (Trig), 6 (Echo) | Right hand detection |
 | **LED Strip** | 3 | WS2812B/WS2815 control |
-| **Audio Output** | 11 | To WWZMDiB XH-M543 amplifier |
+| **Audio Output** | 12 | To WWZMDiB XH-M543 amplifier via 1K resistor |
 | **Motor Control** | 2,3,4,7 | Stepper motor (when used) |
 
 ### **Audio Hardware Stack**
+- **Arduino**: Mega 2560 (Pin 12 - Timer1 OC1B PWM output)
+- **Wiring**: Right channel → 1K resistor → Pin 12, Left channel + Ground → Ground
 - **Amplifier**: WWZMDiB XH-M543 High Power Digital Amplifier (TPA3116D2)
 - **Exciter**: Dayton Audio DAEX32QMB-4 Quad Feet Mega Bass 32mm (40W 4Ω)
 - **Power**: 12V+ recommended for full audio output
@@ -182,9 +184,20 @@ Tools → Manage Libraries → Search & Install:
 - ✅ **Library errors**: Install all required libraries for your chosen module
 - ✅ **Pin conflicts**: Check pin assignments match your hardware
 
+### **Sensor Issues:**
+- ✅ **Sensor reads 0 consistently**: Check `pinMode()` setup in `setup()` function
+  - **CRITICAL**: Trigger pins MUST be set as `OUTPUT`, echo pins as `INPUT`
+  - **Example**: `pinMode(trigPin1, OUTPUT); pinMode(echoPin1, INPUT);`
+  - **Symptom**: Sensor works in standalone test but fails in main system
+- ✅ **HC-SR04 "stuck echo" problem**: Some sensors get stuck in HIGH state
+  - **Solution**: Use reset fix - briefly drive echo pin LOW before reading
+  - **Affected sensors**: Cheap HC-SR04 variants that don't auto-timeout
+- ✅ **NewPing + Mozzi conflicts**: NewPing library can conflict with Mozzi timers
+  - **Solution**: Use direct `pulseIn()` method instead of NewPing for problem sensors
+- ✅ **Erratic sensors**: Verify wiring and power supply
+
 ### **Main System Issues:**
 - ✅ **No audio**: Check NewTone library installation
-- ✅ **Erratic sensors**: Verify wiring and power supply
 - ✅ **LED problems**: Confirm FastLED library and strip type
 
 ### **Performance Issues:**
