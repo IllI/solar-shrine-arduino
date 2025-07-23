@@ -2,13 +2,11 @@
  * Solar Shrine with Theremin Integration
  * Dual-mode lighting (attract/interactive) + theremin-like sound generation
  * Uses NewTone library for timer compatibility with ultrasonic sensors
- * Optimized for Arduino Mega 2560
  * 
- * Hardware (Arduino Mega 2560):
- * - 2x HC-SR04 ultrasonic sensors (pins 5,6,10,11)
+ * Hardware:
+ * - 2x HC-SR04 ultrasonic sensors (pins 5,6,9,10)
  * - WS2812B/WS2815 LED strip (pin 3)
- * - Audio: Pin 12 → 1K resistor → Amplifier right channel (left channel + ground → ground)
- * - WWZMDiB XH-M543 amplifier + Dayton Audio DAEX32QMB-4 exciter
+ * - WWZMDiB XH-M543 amplifier + Dayton Audio DAEX32QMB-4 exciter (pin 11)
  * 
  * Libraries Required:
  * - FastLED
@@ -22,9 +20,9 @@
 #include <NewTone.h>
 #include <NewPing.h>
 
-// Sensor pins - Arduino Mega 2560
-const int trigPin1 = 10;
-const int echoPin1 = 11;
+// Sensor pins
+const int trigPin1 = 9;
+const int echoPin1 = 10;
 const int trigPin2 = 5;
 const int echoPin2 = 6;
 
@@ -40,8 +38,8 @@ NewPing sonar2(trigPin2, echoPin2, 200); // Right sensor, max 200cm
 
 CRGB leds[NUM_LEDS];
 
-// Audio pin - Arduino Mega 2560 Timer1 OC1B
-const int AUDIO_PIN = 12;
+// Audio pin
+const int AUDIO_PIN = 11;
 
 // Range constants (in cm)
 const float MIN_RANGE = 1.0;

@@ -70,16 +70,16 @@ Custom Arduino shield designed to consolidate all Solar Shrine components into a
 - **Wire Gauge**: 22-24 AWG recommended
 - **Cable Length**: Up to 3 meters (shielded cable recommended)
 
-| Pin | Sensor 1 (Left) | Sensor 2 (Right) | Arduino Mega Pin |
-|-----|------------------|-------------------|------------------|
-| 1   | VCC (5V)         | VCC (5V)          | 5V               |
-| 2   | GND              | GND               | GND              |
-| 3   | Trig             | Trig              | Pin 10           |
-| 4   | Echo             | Echo              | Pin 11           |
-| 1   | VCC (5V)         | VCC (5V)          | 5V               |
-| 2   | GND              | GND               | GND              |
-| 3   | Trig             | Trig              | Pin 5            |
-| 4   | Echo             | Echo              | Pin 6            |
+| Pin | Sensor 1 (Left) | Sensor 2 (Right) | Arduino Pin |
+|-----|------------------|-------------------|-------------|
+| 1   | VCC (5V)         | VCC (5V)          | 5V          |
+| 2   | GND              | GND               | GND         |
+| 3   | Trig             | Trig              | Pin 9       |
+| 4   | Echo             | Echo              | Pin 10      |
+| 1   | VCC (5V)         | VCC (5V)          | 5V          |
+| 2   | GND              | GND               | GND         |
+| 3   | Trig             | Trig              | Pin 5       |
+| 4   | Echo             | Echo              | Pin 6       |
 
 ### **2. LED Strip Connector (JST-XH 3-pin)**
 - **Purpose**: WS2812B/WS2815 LED strip connection
@@ -296,11 +296,11 @@ This shield is designed to work seamlessly with the existing Solar Shrine codeba
 - ✅ `02_lighting_systems/fastled_dual_mode/fastled_dual_mode.ino`
 - ✅ `03_audio_systems/speaker_test/speaker_test.ino`
 
-### **Pin Mapping Compatibility** (Arduino Mega 2560)
-All pin assignments match the updated Solar Shrine hardware configuration:
-- **Sensors**: Pins 5,6,10,11 (updated for Mega)
+### **Pin Mapping Compatibility**
+All pin assignments match the existing Solar Shrine hardware configuration:
+- **Sensors**: Pins 5,6,9,10 (unchanged)
 - **LED Strip**: Pin 3 (unchanged)  
-- **Audio Output**: Pin 12 → 1K resistor → Amplifier right channel (updated for Mega)
+- **Audio Output**: Pin 11 (unchanged)
 - **Power and Ground**: Standard Arduino rails
 
 ### **No Code Changes Required**

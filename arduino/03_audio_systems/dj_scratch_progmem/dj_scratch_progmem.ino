@@ -1,11 +1,6 @@
 /*
- * DJ Scratch PROGMEM - Arduino Mega 2560 Version
+ * DJ Scratch PROGMEM - Optimized Version
  * Left hand = play/stop, Right hand = scratch/speed control
- * Optimized for Arduino Mega 2560 with Timer1 OC1B PWM audio output
- * 
- * Hardware (Arduino Mega 2560):
- * - Audio: Pin 12 → 1K resistor → Amplifier right channel (left channel + ground → ground)
- * - Left sensor: pins 10/11, Right sensor: pins 5/6
  */
 
 #include <avr/pgmspace.h>
@@ -27,19 +22,18 @@ volatile bool isScratchMode = false;
 
 void setup() {
   Serial.begin(9600);
-  pinMode(12, OUTPUT);  // Audio output pin 12 (Timer1 OC1B)
+  pinMode(9, OUTPUT);
   pinMode(TRIG1, OUTPUT); pinMode(ECHO1, INPUT);
   pinMode(TRIG2, OUTPUT); pinMode(ECHO2, INPUT);
   
-  // Timer1 PWM - configured for OC1B (pin 12)
-  TCCR1A = _BV(COM1B1) | _BV(WGM11);  // Clear OC1B on compare match, Fast PWM
-  TCCR1B = _BV(WGM13) | _BV(CS10);    // Fast PWM, no prescaler
-  ICR1 = 399;                         // 20kHz frequency
-  OCR1B = ICR1 / 2;                   // 50% duty cycle (silence)
-  TIMSK1 = _BV(OCIE1B);               // Enable Timer1 Compare B interrupt
+  // Timer1 PWM
+  TCCR1A = _BV(COM1A1) | _BV(WGM11);
+  TCCR1B = _BV(WGM13) | _BV(CS10);
+  ICR1 = 399;
+  OCR1A = ICR1 / 2;
+  TIMSK1 = _BV(OCIE1A);
   
-  Serial.println(F("DJ Ready - Mega 2560 Version"));
-  Serial.println(F("Audio on pin 12 (Timer1 OC1B)"));
+  Serial.println(F("DJ Ready"));
 }
 
 float readSensor(uint8_t trig, uint8_t echo) {
@@ -52,7 +46,7 @@ float readSensor(uint8_t trig, uint8_t echo) {
   return duration * 0.034 / 2.0;
 }
 
-ISR(TIMER1_COMPB_vect) {
+ISR(TIMER1_COMPA_vect) {
   sampleCounter++;
   
   uint8_t currentSpeed = isScratchMode ? 2 : playbackSpeed;
@@ -68,7 +62,7 @@ ISR(TIMER1_COMPB_vect) {
       int16_t amp = ((int16_t)sample - 128) * 4;
       amp = constrain(amp, -128, 127);
       
-      OCR1B = ((uint32_t)(amp + 128) * ICR1) / 255;
+      OCR1A = ((uint32_t)(amp + 128) * ICR1) / 255;
       
       if (isScratchMode) {
         sampleIndex += scratchSpeed;
@@ -80,7 +74,7 @@ ISR(TIMER1_COMPB_vect) {
       }
       
     } else {
-      OCR1B = ICR1 / 2;
+      OCR1A = ICR1 / 2;
     }
   }
 }

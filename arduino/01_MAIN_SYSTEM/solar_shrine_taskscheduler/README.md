@@ -113,9 +113,8 @@ Theremin -> Alien -> Robots -> DJ Scratch -> (repeat)
 - WS2812B/WS2815 LED strip on pin 3
 - 60 LEDs (configurable via `NUM_LEDS`)
 
-### Audio Output (Arduino Mega 2560)
-- Pin 12: Audio output (Timer1 OC1B PWM - compatible with both Mozzi and Timer1)
-- Wiring: Right channel → 1K resistor → Pin 12, Left channel + Ground → Ground
+### Audio Output
+- Pin 9: Audio output (compatible with both Mozzi and Timer1)
 - Recommended: WWZMDiB XH-M543 amplifier + Dayton Audio DAEX32QMB-4 exciter
 
 ## JSON Output for TouchDesigner
@@ -170,8 +169,7 @@ Enhanced JSON output includes effect-specific information:
 
 ### Audio Issues
 - **Buzzing/Distortion**: Check that only one audio system is active at a time
-- **No Audio**: Verify pin 12 connections and audio system state
-- **Wiring**: Ensure Right channel → 1K resistor → Pin 12, Left channel + Ground → Ground
+- **No Audio**: Verify pin 9 connections and audio system state
 - **Timing Problems**: Ensure `audioHook()` is called consistently for Mozzi effects
 
 ### Effect Switching

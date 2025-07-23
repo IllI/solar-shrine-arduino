@@ -80,21 +80,25 @@ Arduino IDE → Tools → Manage Libraries:
 
 ## 🔧 **Hardware Configuration**
 
-### **Standard Pin Layout** (Arduino Mega 2560)
+### **Standard Pin Layout** (Used across all systems)
 | Component | Pins | Description |
 |-----------|------|-------------|
-| **Ultrasonic Sensor 1** | 10 (Trig), 11 (Echo) | Left hand detection |
+| **Ultrasonic Sensor 1** | 9 (Trig), 10 (Echo) | Left hand detection |
 | **Ultrasonic Sensor 2** | 5 (Trig), 6 (Echo) | Right hand detection |
 | **LED Strip** | 3 | WS2812B/WS2815 control |
-| **Audio Output** | 12 | To WWZMDiB XH-M543 amplifier via 1K resistor |
+| **Audio Output** | 11 | To WWZMDiB XH-M543 amplifier |
 | **Motor Control** | 2,3,4,7 | Stepper motor (when used) |
 
 ### **Audio Hardware Stack**
-- **Arduino**: Mega 2560 (Pin 12 - Timer1 OC1B PWM output)
-- **Wiring**: Right channel → 1K resistor → Pin 12, Left channel + Ground → Ground
 - **Amplifier**: WWZMDiB XH-M543 High Power Digital Amplifier (TPA3116D2)
 - **Exciter**: Dayton Audio DAEX32QMB-4 Quad Feet Mega Bass 32mm (40W 4Ω)
 - **Power**: 12V+ recommended for full audio output
+
+---
+
+## 🛡️ **Custom Shield Wiring**
+
+This project uses a custom-wired protoboard shield to provide clean and reliable connections for all external components. For detailed images and a complete wiring analysis, please see the **[Custom Shield Wiring Guide](./CUSTOM_SHIELD_WIRING.md)**.
 
 ---
 

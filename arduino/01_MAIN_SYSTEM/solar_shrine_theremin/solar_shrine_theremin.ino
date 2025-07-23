@@ -1,13 +1,12 @@
 /*
  * Solar Shrine with Theremin Integration
  * Dual-mode lighting (attract/interactive) + Mozzi-based theremin audio generation
- * Optimized for Arduino Mega 2560 with Timer1 OC1B PWM audio output
+ * Uses Mozzi library for high-quality audio synthesis (pin 9 compatible!)
  * 
- * Hardware (Arduino Mega 2560):
- * - 2x HC-SR04 ultrasonic sensors (pins 5,6,10,11)
+ * Hardware:
+ * - 2x HC-SR04 ultrasonic sensors (pins 5,6,10,11) - moved for Mozzi compatibility
  * - WS2812B/WS2815 LED strip (pin 3)
- * - Audio: Pin 12 → 1K resistor → Amplifier right channel (left channel + ground → ground)
- * - WWZMDiB XH-M543 amplifier + Dayton Audio DAEX32QMB-4 exciter
+ * - WWZMDiB XH-M543 amplifier + Dayton Audio DAEX32QMB-4 exciter (pin 9)
  * 
  * Libraries Required:
  * - FastLED
@@ -55,8 +54,8 @@ NewPing sonar2(trigPin2, echoPin2, 200); // Right sensor, max 200cm
 
 CRGB leds[NUM_LEDS];
 
-// Audio pin - Arduino Mega 2560 Timer1 OC1B PWM output
-const int AUDIO_PIN = 12;
+// Audio pin - now on pin 9 (perfect for Mozzi!)
+const int AUDIO_PIN = 9;
 
 #if ENABLE_AUDIO
 // Mozzi audio variables (now pin 9 compatible!)

@@ -1,5 +1,5 @@
 /*
- * PROGMEM Audio Player for Arduino Mega 2560
+ * PROGMEM Audio Player for Arduino UNO
  * HIGH FIDELITY VERSION - Phase Correct PWM for clear speech
  * 
  * Based on Open Music Labs research: Phase Correct PWM has much better
@@ -8,10 +8,10 @@
  * - 32kHz effective frequency: Well above audible, good resolution
  * - Optimized for speech clarity over raw bit depth
  * 
- * Hardware (Arduino Mega 2560):
- * - Audio output on pin 12 (Timer1 OC1B PWM)
- * - Wiring: Right channel → 1K resistor → Pin 12, Left channel + Ground → Ground
- * - Connect to WWZMDiB XH-M543 amplifier
+ * Hardware:
+ * - Audio output on pin 9 (Timer1 PWM)
+ * - RC filter: 1.5kΩ resistor + 10nF capacitor (10.6kHz cutoff)
+ * - Connect filtered output to amplifier
  * 
  * Auto-plays audio - crystal clear speech quality!
  */
@@ -27,8 +27,8 @@ volatile uint32_t sampleIndex = 0;
 volatile bool audioComplete = false;
 volatile uint8_t sampleCounter = 0;
 
-// Audio output pin (Timer1 OC1B PWM = Pin 12 on Arduino Mega 2560)
-#define AUDIO_PIN 12
+// Audio output pin (Timer1 PWM = Pin 9)
+#define AUDIO_PIN 9
 
 void setup() {
   Serial.begin(9600);
@@ -54,7 +54,7 @@ void setup() {
 void setupAudioTimer() {
   // Timer1 Phase Correct PWM mode for superior audio fidelity
   // Phase Correct PWM: WGM13=1, WGM12=0, WGM11=1, WGM10=0
-  TCCR1A = _BV(COM1B1) | _BV(WGM11);              // Clear OC1B on up-count, Phase Correct PWM
+  TCCR1A = _BV(COM1A1) | _BV(WGM11);              // Clear OC1A on up-count, Phase Correct PWM
   TCCR1B = _BV(WGM13) | _BV(CS10);                // Phase Correct PWM, no prescaler
   
   // INCREASED AMPLITUDE: 20kHz for more resolution and volume
@@ -63,17 +63,17 @@ void setupAudioTimer() {
   // This gives us 400 levels (more amplitude) while staying inaudible
   ICR1 = 399;  // 20kHz effective frequency, 400 levels (better amplitude)
   
-  // OCR1B controls PWM duty cycle (audio sample value)
-  OCR1B = ICR1 / 2;  // Start with silence (50% duty cycle)
+  // OCR1A controls PWM duty cycle (audio sample value)
+  OCR1A = ICR1 / 2;  // Start with silence (50% duty cycle)
   
-  // Enable Timer1 Compare B interrupt
-  TIMSK1 = _BV(OCIE1B);
+  // Enable Timer1 Compare A interrupt
+  TIMSK1 = _BV(OCIE1A);
   
-  Serial.println("Timer1 Phase Correct PWM: 20kHz, 400 levels, HIGH AMPLITUDE (Pin 12)");
+  Serial.println("Timer1 Phase Correct PWM: 20kHz, 400 levels, HIGH AMPLITUDE");
 }
 
-// Timer1 Compare B interrupt - Phase Correct PWM mode
-ISR(TIMER1_COMPB_vect) {
+// Timer1 Compare A interrupt - Phase Correct PWM mode
+ISR(TIMER1_COMPA_vect) {
   // In Phase Correct mode, this interrupt fires at 2x the effective frequency
   // 40kHz interrupt rate for 20kHz effective PWM frequency
   // Count every 5th interrupt for 8kHz sample rate (40kHz / 5 = 8kHz)
@@ -102,7 +102,7 @@ ISR(TIMER1_COMPB_vect) {
       // Convert amplified sample to PWM value (0-ICR1)
       // Phase Correct PWM with full amplitude range
       uint16_t pwmValue = ((uint32_t)amplifiedSample * ICR1) / 255;
-      OCR1B = pwmValue;
+      OCR1A = pwmValue;
       
       // Advance to next sample
       sampleIndex++;
@@ -111,11 +111,11 @@ ISR(TIMER1_COMPB_vect) {
       if (sampleIndex >= AUDIO_SAMPLE_COUNT) {
         isPlaying = false;
         audioComplete = true;
-        OCR1B = ICR1 / 2;  // Output silence (50% duty cycle)
+        OCR1A = ICR1 / 2;  // Output silence (50% duty cycle)
       }
     } else {
       // Not playing - output silence
-      OCR1B = ICR1 / 2;
+      OCR1A = ICR1 / 2;
     }
   }
 }
