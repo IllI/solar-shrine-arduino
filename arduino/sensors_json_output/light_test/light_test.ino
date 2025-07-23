@@ -15,7 +15,7 @@ const int echoPin2 = 6;
 
 // LED strip configuration
 #define LED_PIN 3
-#define NUM_LEDS 20
+#define NUM_LEDS 120
 #define LED_TYPE WS2815
 #define COLOR_ORDER RGB
 
