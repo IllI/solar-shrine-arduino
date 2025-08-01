@@ -19,8 +19,13 @@ except ImportError:
     print("ERROR: pydub not installed. Run: pip install pydub")
     sys.exit(1)
 
-def convert_wav_to_progmem(input_file, output_file="audio_data.h"):
+def convert_wav_to_progmem(input_file, output_file=None):
     """Convert WAV to Arduino PROGMEM header file"""
+    
+    # Auto-generate output filename if not provided
+    if output_file is None:
+        input_path = Path(input_file)
+        output_file = f"{input_path.stem}_data.h"
     
     if not Path(input_file).exists():
         print(f"❌ File not found: {input_file}")
@@ -71,6 +76,11 @@ def convert_wav_to_progmem(input_file, output_file="audio_data.h"):
         # Generate Arduino header file
         print(f"📝 Generating {output_file}...")
         
+        # Create unique variable names based on filename
+        input_path = Path(input_file)
+        var_name = input_path.stem.upper().replace('-', '_').replace(' ', '_')
+        header_guard = f"{var_name}_DATA_H"
+        
         with open(output_file, 'w') as f:
             f.write("/*\n")
             f.write(f" * Audio data converted from {input_file}\n")
@@ -81,16 +91,16 @@ def convert_wav_to_progmem(input_file, output_file="audio_data.h"):
             f.write(" * Format: 8-bit unsigned PCM, mono\n")
             f.write(" */\n\n")
             
-            f.write("#ifndef AUDIO_DATA_H\n")
-            f.write("#define AUDIO_DATA_H\n\n")
+            f.write(f"#ifndef {header_guard}\n")
+            f.write(f"#define {header_guard}\n\n")
             
             f.write("#include <avr/pgmspace.h>\n\n")
             
-            f.write(f"const uint16_t AUDIO_SAMPLE_COUNT = {len(samples)};\n")
-            f.write(f"const uint16_t AUDIO_SAMPLE_RATE = {target_rate};\n")
-            f.write(f"const float AUDIO_DURATION = {duration:.2f};\n\n")
+            f.write(f"const uint16_t {var_name}_SAMPLE_COUNT = {len(samples)};\n")
+            f.write(f"const uint16_t {var_name}_SAMPLE_RATE = {target_rate};\n")
+            f.write(f"const float {var_name}_DURATION = {duration:.2f};\n\n")
             
-            f.write("const uint8_t audioData[] PROGMEM = {\n")
+            f.write(f"const uint8_t {var_name.lower()}Data[] PROGMEM = {{\n")
             
             # Write samples in rows of 16 for readability
             for i in range(0, len(samples), 16):
@@ -102,7 +112,7 @@ def convert_wav_to_progmem(input_file, output_file="audio_data.h"):
                 f.write("\n")
             
             f.write("};\n\n")
-            f.write("#endif // AUDIO_DATA_H\n")
+            f.write(f"#endif // {header_guard}\n")
         
         print(f"✅ Generated {output_file}")
         print("\n🚀 Next steps:")

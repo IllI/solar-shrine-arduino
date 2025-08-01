@@ -1,6 +1,6 @@
 /*
  * Solar Shrine - Modular Integration System
- * Combines dual-mode lighting, sensor detection, and DJ scratch audio
+ * Combines dual-mode lighting, sensor detection, and rotating audio effects
  * Designed as the main hub for modular functionality expansion
  * 
  * Hardware (Arduino Mega 2560):
@@ -12,9 +12,13 @@
  * Features:
  * - Attract/Interactive LED modes
  * - Hand detection with averaging
- * - DJ Scratch audio control (Left hand = Play/Pause, Right hand = Scratch)
+ * - Rotating Audio Effects: Theremin → DJ Scratch → Alien Sound → Robots Talking
  * - TouchDesigner JSON integration
  * - Modular architecture for future expansion
+ * 
+ * Audio Effect Rotation:
+ * - Cover both sensors for 2+ seconds to cycle to next effect
+ * - Order: Theremin → DJ Scratch → Alien Sound → Robots Talking → (repeat)
  * 
  * Libraries Required:
  * - FastLED
@@ -29,6 +33,9 @@
 
 // Audio data - include the DJ scratch audio
 #include "audio_data.h"
+
+// NEW: Include modular audio effects system
+#include "AudioEffects.h"
 
 // =============================================================================
 // HARDWARE CONFIGURATION
@@ -51,9 +58,6 @@ NewPing sonar2(trigPin2, echoPin2, 200); // Right sensor, max 200cm
 #define COLOR_ORDER GRB
 CRGB leds[NUM_LEDS];
 
-// Audio pin - Arduino Mega 2560 Timer1 OC1B
-const int AUDIO_PIN = 12;
-
 // =============================================================================
 // SYSTEM CONSTANTS
 // =============================================================================
@@ -75,6 +79,9 @@ const unsigned long INTERACTIVE_TIMEOUT = 10000;  // 10 seconds
 // Hand detection averaging
 const int SAMPLES = 5;
 
+// Audio effect rotation constants
+const unsigned long EFFECT_SWITCH_HOLD_TIME = 2000;  // 2 seconds to switch effects
+
 // =============================================================================
 // SYSTEM STATE VARIABLES
 // =============================================================================
@@ -93,17 +100,10 @@ float distance2Samples[SAMPLES];
 int sampleIndex = 0;
 bool samplesInitialized = false;
 
-// Audio system state (DJ Scratch)
-volatile int32_t audioSampleIndex = 0;
-volatile uint8_t audioSampleCounter = 0;
-volatile uint8_t playState = 0;
-volatile uint8_t playbackSpeed = 5;
-volatile int8_t scratchSpeed = 1;
-volatile bool isScratchMode = false;
-
-// Audio control state
-bool audioActive = false;
-unsigned long lastAudioStateChange = 0;
+// Audio effect rotation state
+unsigned long bothHandsStartTime = 0;
+bool bothHandsDetected = false;
+bool effectSwitchInProgress = false;
 
 // Performance optimization variables
 unsigned long lastLEDUpdate = 0;
@@ -111,61 +111,109 @@ const unsigned long LED_UPDATE_INTERVAL = 33;  // ~30Hz for smooth visuals
 volatile bool audioInterruptBusy = false;
 
 // =============================================================================
-// AUDIO SYSTEM (DJ SCRATCH)
+// MASTER AUDIO INTERRUPT (Timer1 Compare B)
 // =============================================================================
 
-void setupAudioSystem() {
-  pinMode(AUDIO_PIN, OUTPUT);  // Pin 12 (Timer1 OC1B)
-  
-  // Timer1 PWM - configured for OC1B (pin 12)
-  TCCR1A = _BV(COM1B1) | _BV(WGM11);  // Clear OC1B on compare match, Fast PWM
-  TCCR1B = _BV(WGM13) | _BV(CS10);    // Fast PWM, no prescaler
-  ICR1 = 399;                         // 20kHz frequency
-  OCR1B = ICR1 / 2;                   // 50% duty cycle (silence)
-  TIMSK1 = _BV(OCIE1B);               // Enable Timer1 Compare B interrupt
-  
-  Serial.println(F("Audio System Ready - DJ Scratch Mode"));
-}
-
-// Timer1 Compare B interrupt - Audio generation (Optimized)
+// Timer1 Compare B interrupt - Routes to active audio effect
 ISR(TIMER1_COMPB_vect) {
-  // Quick exit if audio is off to minimize interrupt time
-  if (playState == 0) {
-    OCR1B = ICR1 / 2;  // Silence
-    return;
+  audioInterruptBusy = true;
+  
+  switch (currentAudioEffect) {
+    case EFFECT_THEREMIN:
+      // Simple sine wave synthesis for theremin
+      if (theremin.active && theremin.volume > 0) {
+        static uint32_t thereminPhase = 0;
+        thereminPhase += (uint32_t)(theremin.frequency * 65536UL / 20000UL);
+        
+        // Simple sine approximation using triangle wave
+        uint16_t phase16 = thereminPhase >> 16;
+        int16_t triangle = (phase16 < 32768) ? (phase16 - 16384) : (49152 - phase16);
+        triangle = triangle >> 6;  // Scale down
+        
+        int16_t sample = (triangle * theremin.volume) >> 8;
+        sample = constrain(sample, -128, 127);
+        OCR1B = ((uint32_t)(sample + 128) * ICR1) >> 8;
+      } else {
+        OCR1B = ICR1 / 2;  // Silence
+      }
+      break;
+      
+    case EFFECT_DJ_SCRATCH:
+      // DJ scratch audio (existing logic)
+      if (djScratch.playState == 0) {
+        OCR1B = ICR1 / 2;  // Silence
+        break;
+      }
+      
+      djScratch.sampleCounter++;
+      uint8_t currentSpeed = djScratch.isScratchMode ? 2 : djScratch.playbackSpeed;
+      
+      if (djScratch.sampleCounter >= currentSpeed) {
+        djScratch.sampleCounter = 0;
+        
+        if (djScratch.sampleIndex < 0) djScratch.sampleIndex = 0;
+        if (djScratch.sampleIndex >= AUDIO_SAMPLE_COUNT) djScratch.sampleIndex = 0;
+        
+        uint8_t sample = pgm_read_byte(&audioData[djScratch.sampleIndex]);
+        int16_t amp = ((int16_t)sample - 128) << 2;
+        amp = constrain(amp, -128, 127);
+        
+        OCR1B = ((uint32_t)(amp + 128) * ICR1) >> 8;
+        
+        if (djScratch.isScratchMode) {
+          djScratch.sampleIndex += djScratch.scratchSpeed;
+          if (djScratch.sampleIndex < 0) djScratch.sampleIndex = AUDIO_SAMPLE_COUNT - 1;
+          if (djScratch.sampleIndex >= AUDIO_SAMPLE_COUNT) djScratch.sampleIndex = 0;
+        } else {
+          djScratch.sampleIndex++;
+          if (djScratch.sampleIndex >= AUDIO_SAMPLE_COUNT) djScratch.sampleIndex = 0;
+        }
+      }
+      break;
+      
+    case EFFECT_ALIEN_SOUND:
+      // Alien sound FM synthesis
+      if (alienSound.is_active) {
+        alienSound.phase_accumulator += alienSound.phase_increment;
+        alienSound.mod_phase += 50;
+        
+        uint8_t modulator = (alienSound.mod_phase >> 8) & 0xFF;
+        uint8_t carrier = ((alienSound.phase_accumulator + (modulator * 4)) >> 8) & 0xFF;
+        
+        int16_t amp = (carrier > 128) ? 100 : -100;
+        OCR1B = ((uint32_t)(amp + 128) * ICR1) / 255;
+      } else {
+        OCR1B = ICR1 / 2;  // Silence
+      }
+      break;
+      
+    case EFFECT_ROBOTS_TALKING:
+      // Robot talking square wave synthesis
+      if (robotTalk.is_active) {
+        robotTalk.phase += 150;
+        if ((robotTalk.phase & 0x1000) == 0) robotTalk.current_pattern++;
+        
+        uint8_t wave = robotTalk.phase >> 8;
+        int16_t amp = 0;
+        
+        if (robotTalk.current_pattern & 1) {
+          amp = (wave & 0x80) ? 120 : -120;  // Square wave
+        } else {
+          amp = (wave & 0x40) ? 80 : -80;    // Different pattern
+        }
+        
+        OCR1B = ((uint32_t)(amp + 128) * ICR1) / 255;
+      } else {
+        OCR1B = ICR1 / 2;  // Silence
+      }
+      break;
+      
+    default:
+      OCR1B = ICR1 / 2;  // Silence
+      break;
   }
   
-  audioInterruptBusy = true;  // Signal that interrupt is active
-  
-  audioSampleCounter++;
-  uint8_t currentSpeed = isScratchMode ? 2 : playbackSpeed;
-  
-  if (audioSampleCounter >= currentSpeed) {
-    audioSampleCounter = 0;
-    
-    // Bounds checking with faster logic
-    if (audioSampleIndex < 0) audioSampleIndex = 0;
-    if (audioSampleIndex >= AUDIO_SAMPLE_COUNT) audioSampleIndex = 0;
-    
-    // Optimized sample reading and processing
-    uint8_t sample = pgm_read_byte(&audioData[audioSampleIndex]);
-    int16_t amp = ((int16_t)sample - 128) << 2;  // Faster bit shift instead of multiply
-    amp = constrain(amp, -128, 127);
-    
-    OCR1B = ((uint32_t)(amp + 128) * ICR1) >> 8;  // Faster bit shift division
-    
-    // Sample index advancement
-    if (isScratchMode) {
-      audioSampleIndex += scratchSpeed;
-      if (audioSampleIndex < 0) audioSampleIndex = AUDIO_SAMPLE_COUNT - 1;
-      if (audioSampleIndex >= AUDIO_SAMPLE_COUNT) audioSampleIndex = 0;
-    } else {
-      audioSampleIndex++;
-      if (audioSampleIndex >= AUDIO_SAMPLE_COUNT) audioSampleIndex = 0;
-    }
-  }
-  
-  audioInterruptBusy = false;  // Signal that interrupt is complete
+  audioInterruptBusy = false;
 }
 
 // =============================================================================
@@ -347,82 +395,48 @@ void updateLEDs(float avgDistance1, float avgDistance2, bool handsDetected, unsi
 }
 
 // =============================================================================
-// AUDIO CONTROL SYSTEM
+// AUDIO EFFECT ROTATION SYSTEM
 // =============================================================================
 
-void updateAudioControl(float avgDistance1, float avgDistance2, bool leftHand, bool rightHand) {
-  // LEFT HAND - Play/Stop Control
-  static bool prevLeftHand = false;
+void checkForEffectRotation(bool leftHand, bool rightHand, unsigned long currentTime) {
+  bool bothHands = leftHand && rightHand;
   
-  if (leftHand && !prevLeftHand) {
-    if (playState == 0) {
-      playState = 1;
-      audioSampleIndex = 0;
-      audioActive = true;
-      lastAudioStateChange = millis();
-      Serial.println(F("AUDIO: PLAY"));
-    } else {
-      playState = 0;
-      audioActive = false;
-      lastAudioStateChange = millis();
-      Serial.println(F("AUDIO: STOP"));
+  if (bothHands && !bothHandsDetected) {
+    // Both hands just detected - start timer
+    bothHandsDetected = true;
+    bothHandsStartTime = currentTime;
+    Serial.println(F("Both hands detected - hold for 2s to switch effect"));
+  } else if (!bothHands && bothHandsDetected) {
+    // Hands removed - cancel switch
+    bothHandsDetected = false;
+    effectSwitchInProgress = false;
+    Serial.println(F("Effect switch cancelled"));
+  } else if (bothHands && bothHandsDetected && !effectSwitchInProgress) {
+    // Check if held long enough
+    if (currentTime - bothHandsStartTime >= EFFECT_SWITCH_HOLD_TIME) {
+      effectSwitchInProgress = true;
+      
+      // Cycle to next effect
+      AudioEffect nextEffect;
+      switch (currentAudioEffect) {
+        case EFFECT_THEREMIN: nextEffect = EFFECT_DJ_SCRATCH; break;
+        case EFFECT_DJ_SCRATCH: nextEffect = EFFECT_ALIEN_SOUND; break;
+        case EFFECT_ALIEN_SOUND: nextEffect = EFFECT_ROBOTS_TALKING; break;
+        case EFFECT_ROBOTS_TALKING: nextEffect = EFFECT_THEREMIN; break;
+        default: nextEffect = EFFECT_THEREMIN; break;
+      }
+      
+      switchAudioEffect(nextEffect);
+      
+      // LED flash to indicate effect change
+      fill_solid(leds, NUM_LEDS, CRGB::Blue);
+      FastLED.show();
+      delay(200);
+      fill_solid(leds, NUM_LEDS, CRGB::Black);
+      FastLED.show();
+      delay(100);
     }
   }
-  
-  // RIGHT HAND - Scratch Control
-  static bool prevRightHand = false;
-  static unsigned long lastTransition = 0;
-  static uint8_t transitionCount = 0;
-  static int8_t scratchDirection = 1;
-  static unsigned long lastRightHandDetected = 0;
-  
-  if (rightHand) {
-    lastRightHandDetected = millis();
-  }
-  
-  if (rightHand != prevRightHand) {
-    lastTransition = millis();
-    transitionCount++;
-    scratchDirection = -scratchDirection;
-  }
-  
-  if (millis() - lastTransition > 500) {
-    transitionCount = 0;
-  }
-  
-  // Stop scratching if no right hand for 200ms
-  if (!rightHand && (millis() - lastRightHandDetected) > 200) {
-    if (isScratchMode) {
-      isScratchMode = false;
-      scratchSpeed = 1;
-      playbackSpeed = 5;
-      Serial.println(F("AUDIO: NORMAL"));
-    }
-  }
-  // Scratch mode - rapid transitions
-  else if (rightHand && transitionCount >= 2 && (millis() - lastTransition) < 300) {
-    isScratchMode = true;
-    
-    if (transitionCount >= 4) {
-      scratchSpeed = scratchDirection * 6;
-      Serial.println(F("AUDIO: SCRATCH++"));
-    } else {
-      scratchSpeed = scratchDirection * 3;
-      Serial.println(F("AUDIO: SCRATCH"));
-    }
-  }
-  // Distance speed control
-  else if (rightHand && playState == 1) {
-    isScratchMode = false;
-    scratchSpeed = 1;
-    
-    float ratio = (avgDistance2 - MIN_RANGE) / (MAX_RANGE - MIN_RANGE);
-    ratio = constrain(ratio, 0.0, 1.0);
-    playbackSpeed = (uint8_t)(3 + (12 * ratio));  // 3 (fast) to 15 (slow)
-  }
-  
-  prevLeftHand = leftHand;
-  prevRightHand = rightHand;
 }
 
 // =============================================================================
@@ -442,11 +456,36 @@ void sendJSONUpdate(float avgDistance1, float avgDistance2, bool handsDetected, 
   // LED system data
   doc["mode"] = (currentMode == ATTRACT_MODE) ? "attract" : "interactive";
   
-  // Audio system data
-  doc["audio_active"] = audioActive;
-  doc["audio_playing"] = (playState == 1);
-  doc["scratch_mode"] = isScratchMode;
-  doc["playback_speed"] = playbackSpeed;
+  // Audio system data - NEW: Include current effect
+  const char* effectName = "none";
+  switch (currentAudioEffect) {
+    case EFFECT_THEREMIN: effectName = "theremin"; break;
+    case EFFECT_DJ_SCRATCH: effectName = "dj_scratch"; break;
+    case EFFECT_ALIEN_SOUND: effectName = "alien_sound"; break;
+    case EFFECT_ROBOTS_TALKING: effectName = "robots_talking"; break;
+  }
+  doc["current_audio_effect"] = effectName;
+  
+  // Effect-specific data
+  switch (currentAudioEffect) {
+    case EFFECT_THEREMIN:
+      doc["audio_active"] = theremin.active;
+      doc["frequency"] = theremin.frequency;
+      doc["volume"] = theremin.volume;
+      break;
+    case EFFECT_DJ_SCRATCH:
+      doc["audio_active"] = (djScratch.playState == 1);
+      doc["audio_playing"] = (djScratch.playState == 1);
+      doc["scratch_mode"] = djScratch.isScratchMode;
+      doc["playback_speed"] = djScratch.playbackSpeed;
+      break;
+    case EFFECT_ALIEN_SOUND:
+      doc["audio_active"] = alienSound.is_active;
+      break;
+    case EFFECT_ROBOTS_TALKING:
+      doc["audio_active"] = robotTalk.is_active;
+      break;
+  }
   
   // Color correlation values for TouchDesigner
   if (currentMode == INTERACTIVE_MODE) {
@@ -460,14 +499,12 @@ void sendJSONUpdate(float avgDistance1, float avgDistance2, bool handsDetected, 
   }
   
   // System info
-  doc["system"] = "solar_shrine_modular";
+  doc["system"] = "solar_shrine_modular_rotating";
   doc["timestamp"] = millis();
   
   serializeJson(doc, Serial);
   Serial.println();
 }
-
-
 
 // =============================================================================
 // MAIN SYSTEM SETUP AND LOOP
@@ -496,8 +533,8 @@ void setup() {
     distance2Samples[i] = MAX_RANGE + 10;
   }
   
-  // Initialize audio system
-  setupAudioSystem();
+  // NEW: Initialize modular audio system
+  setupAudio();
   
   // Startup sequence - LED flash
   fill_solid(leds, NUM_LEDS, CRGB::Blue);
@@ -506,9 +543,10 @@ void setup() {
   fill_solid(leds, NUM_LEDS, CRGB::Black);
   FastLED.show();
   
-  Serial.println(F("Solar Shrine Modular System Ready"));
-  Serial.println(F("Features: Dual-mode LEDs + DJ Scratch Audio"));
-  Serial.println(F("Left Hand: Play/Pause | Right Hand: Scratch Control"));
+  Serial.println(F("Solar Shrine Modular System Ready - Rotating Audio Effects"));
+  Serial.println(F("Features: Dual-mode LEDs + Rotating Audio Effects"));
+  Serial.println(F("Audio Effects: Theremin → DJ Scratch → Alien Sound → Robots Talking"));
+  Serial.println(F("Hold both hands over sensors for 2s to cycle effects"));
   Serial.println(F("Performance: Optimized LED/Audio timing"));
 }
 
@@ -594,12 +632,15 @@ void loop() {
   // Update systems
   updateLEDs(avgDistance1, avgDistance2, handsDetected, currentTime);
   
+  // NEW: Update current audio effect
+  updateAudioEffects(avgDistance1, avgDistance2);
+  
+  // NEW: Check for effect rotation
+  checkForEffectRotation(inRange1, inRange2, currentTime);
+  
   // Stagger heavy operations in interactive mode
   static uint8_t heavyTaskCycle = 0;
   switch (heavyTaskCycle) {
-    case 0:
-      updateAudioControl(avgDistance1, avgDistance2, inRange1, inRange2);
-      break;
     case 2:
       sendJSONUpdate(avgDistance1, avgDistance2, handsDetected, inRange1, inRange2);
       break;

@@ -13,7 +13,7 @@ This is the **classic MiniMin theremin** based on techno-womble's proven design,
 - **Classic theremin vibrato** (5.5Hz wobble)
 - **Logarithmic volume response** (natural sound curve)
 - **Enhanced sensor sensitivity** with tuning options
-- **C Minor Pentatonic scale** (beautiful and forgiving)
+- **C Minor Pentatonic scale**   (beautiful and forgiving)
 - **Echo/delay effects** (currently disabled for stability)
 - **Real-time debug output** for tuning
 

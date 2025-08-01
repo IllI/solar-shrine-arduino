@@ -1,0 +1,12 @@
+# Custom compiler flags to handle large PROGMEM arrays
+# Place this file in your sketch folder to override default compiler settings
+
+# Increase compiler limits for large arrays
+compiler.c.extra_flags=-fno-lto -fno-tree-switch-conversion -fno-tree-tail-merge
+compiler.cpp.extra_flags=-fno-lto -fno-tree-switch-conversion -fno-tree-tail-merge
+compiler.c.elf.extra_flags=-fno-lto
+
+# Alternative: Disable Link Time Optimization completely
+# compiler.c.extra_flags=-fno-lto
+# compiler.cpp.extra_flags=-fno-lto
+# compiler.c.elf.extra_flags=-fno-lto
