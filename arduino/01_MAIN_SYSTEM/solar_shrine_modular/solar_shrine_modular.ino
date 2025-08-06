@@ -44,8 +44,8 @@
 // =============================================================================
 
 // Pin assignments for HC-SR04 sensors
-const int trigPin1 = 22; // Left sensor
-const int echoPin1 = 23;
+const int trigPin1 = 10; // Left sensor
+const int echoPin1 = 11;
 const int trigPin2 = 5;  // Right sensor
 const int echoPin2 = 6;
 
@@ -56,7 +56,7 @@ const float MAX_RANGE = 50.0;                 // Maximum detection range in cm
 const unsigned long SENSOR_TIMEOUT = 30000;   // Sensor timeout in microseconds
 
 // LED strip configuration
-#define LED_PIN 2
+#define LED_PIN 3
 #define NUM_LEDS 120
 #define LED_TYPE WS2812B
 #define COLOR_ORDER GRB

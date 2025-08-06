@@ -1,7 +1,7 @@
 #include "theremin.h"
 #include "NewTone.h"
 
-const int AUDIO_PIN = 45;
+const int AUDIO_PIN = 12;
 
 // Range constants (in cm)
 const float MIN_RANGE_THEREMIN = 5.0;
