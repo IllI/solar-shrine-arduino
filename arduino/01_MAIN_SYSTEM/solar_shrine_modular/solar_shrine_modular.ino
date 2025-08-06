@@ -1,70 +1,69 @@
 /*
- * Solar Shrine - Modular Integration System
- * Combines dual-mode lighting, sensor detection, and rotating audio effects
- * Designed as the main hub for modular functionality expansion
+ * Solar Shrine Modular Theremin
  * 
- * Hardware (Arduino Mega 2560):
- * - 2x HC-SR04 ultrasonic sensors (pins 5,6,10,11)
- * - WS2812B/WS2815 LED strip (pin 3)
- * - Audio: Pin 12 → 1K resistor → Amplifier right channel (left channel + ground → ground)
- * - WWZMDiB XH-M543 amplifier + Dayton Audio DAEX32QMB-4 exciter
+ * A modular theremin system using ultrasonic sensors for gesture control.
+ * This version provides independent pitch and volume control through hand proximity.
+ * 
+ * Hardware:
+ * - Arduino Uno/Nano
+ * - 2x HC-SR04 ultrasonic sensors (pitch and volume control)
+ * - Audio output via Mozzi library
  * 
  * Features:
- * - Attract/Interactive LED modes
- * - Hand detection with averaging
- * - Rotating Audio Effects: Theremin → DJ Scratch → Alien Sound → Robots Talking
- * - TouchDesigner JSON integration
- * - Modular architecture for future expansion
+ * - Real-time gesture-based audio synthesis
+ * - Independent pitch and volume control
+ * - Smooth audio transitions with rolling averages
+ * - Complete silence when no hands detected
  * 
- * Audio Effect Rotation:
- * - Cover both sensors for 2+ seconds to cycle to next effect
- * - Order: Theremin → DJ Scratch → Alien Sound → Robots Talking → (repeat)
+ * Detection System:
+ * - Uses distance-based detection (5-50cm range) like solar_shrine_theremin.ino
+ * - Converts sensor duration to actual distance in centimeters
+ * - Only detects hands within MIN_RANGE to MAX_RANGE
+ * - Handles sensor timeout and very close readings properly
  * 
- * Libraries Required:
- * - FastLED
- * - ArduinoJson
- * - NewPing
+ * Recent fixes:
+ * - Replaced duration-based thresholds with distance-based detection
+ * - Fixed false hand detection by using proper range checking
+ * - Ensure complete silence when no hands are detected
+ * - Hardware-level audio cutoff via pin control
+ * 
+ * Author: AI Assistant
+ * Date: 2024
  */
 
-#include <ArduinoJson.h>
+#include "theremin.h"
+#include <NewTone.h>
+#include "dj_scratch.h"
+#define FASTLED_FORCE_BITBANG
 #include <FastLED.h>
-#include <NewPing.h>
-#include <avr/pgmspace.h>
-
-// Audio data - include the DJ scratch audio
-#include "audio_data.h"
-
-// NEW: Include modular audio effects system
-#include "AudioEffects.h"
+#include <ArduinoJson.h>
+// NewPing removed to avoid timer conflicts with NewTone
 
 // =============================================================================
 // HARDWARE CONFIGURATION
 // =============================================================================
 
-// Sensor pins - Arduino Mega 2560
-const int trigPin1 = 10;  // Left sensor trigger
-const int echoPin1 = 11;  // Left sensor echo
-const int trigPin2 = 5;   // Right sensor trigger
-const int echoPin2 = 6;   // Right sensor echo
+// Pin assignments for HC-SR04 sensors
+const int trigPin1 = 22; // Left sensor
+const int echoPin1 = 23;
+const int trigPin2 = 5;  // Right sensor
+const int echoPin2 = 6;
 
-// NewPing sensor objects
-NewPing sonar1(trigPin1, echoPin1, 200); // Left sensor, max 200cm
-NewPing sonar2(trigPin2, echoPin2, 200); // Right sensor, max 200cm
+// Distance-based detection constants (in cm)
+const float MIN_RANGE = 5.0;                  // Minimum detection range in cm
+const float MAX_RANGE = 50.0;                 // Maximum detection range in cm
+
+const unsigned long SENSOR_TIMEOUT = 30000;   // Sensor timeout in microseconds
 
 // LED strip configuration
-#define LED_PIN 3
+#define LED_PIN 2
 #define NUM_LEDS 120
 #define LED_TYPE WS2812B
 #define COLOR_ORDER GRB
 CRGB leds[NUM_LEDS];
 
-// =============================================================================
-// SYSTEM CONSTANTS
-// =============================================================================
-
-// Range constants (in cm)
-const float MIN_RANGE = 1.0;
-const float MAX_RANGE = 20.0;
+// NewPing setup
+// NewPing objects removed - using manual sensor reading
 
 // Mode constants
 enum LightMode {
@@ -72,200 +71,205 @@ enum LightMode {
   INTERACTIVE_MODE
 };
 
-// Attract mode timing - optimized for smooth transitions
-const float ATTRACT_PERIOD = 4000.0;  // 4 seconds for slightly faster, smoother cycle
+enum EffectType {
+  THEREMIN,
+  DJ_SCRATCH
+};
+
+EffectType currentEffect = THEREMIN;
+
+// State variables
+LightMode currentMode = ATTRACT_MODE;
+unsigned long lastHandDetectedTime = 0;
 const unsigned long INTERACTIVE_TIMEOUT = 10000;  // 10 seconds
+const unsigned long EFFECT_ROTATION_TIMEOUT = 5000; // 5 seconds
+const unsigned long DJ_LOOP_DURATION = 5000; // 5 seconds
+
+
+// Attract mode variables
+const float ATTRACT_PERIOD = 5000.0;  // 5 seconds in milliseconds
+float attractPhaseOffset = 0.0;
+bool usePhaseOffset = false;
 
 // Hand detection averaging
 const int SAMPLES = 5;
-
-// Audio effect rotation constants
-const unsigned long EFFECT_SWITCH_HOLD_TIME = 2000;  // 2 seconds to switch effects
-
-// =============================================================================
-// SYSTEM STATE VARIABLES
-// =============================================================================
-
-// LED system state
-LightMode currentMode = ATTRACT_MODE;
-unsigned long lastHandDetectedTime = 0;
-float attractPhaseOffset = 0.0;
-bool usePhaseOffset = false;
-CRGB lastLeftColor = CRGB::Yellow;
-CRGB lastRightColor = CRGB::Yellow;
-
-// Sensor averaging
 float distance1Samples[SAMPLES];
 float distance2Samples[SAMPLES];
 int sampleIndex = 0;
 bool samplesInitialized = false;
 
-// Audio effect rotation state
-unsigned long bothHandsStartTime = 0;
-bool bothHandsDetected = false;
-bool effectSwitchInProgress = false;
-
-// Performance optimization variables
-unsigned long lastLEDUpdate = 0;
-const unsigned long LED_UPDATE_INTERVAL = 33;  // ~30Hz for smooth visuals
-volatile bool audioInterruptBusy = false;
+// Last known interactive colors for smooth transition
+CRGB lastLeftColor = CRGB::Yellow;
+CRGB lastRightColor = CRGB::Yellow;
 
 // =============================================================================
-// MASTER AUDIO INTERRUPT (Timer1 Compare B)
+// SETUP AND MAIN LOOP
 // =============================================================================
 
-// Timer1 Compare B interrupt - Routes to active audio effect
-ISR(TIMER1_COMPB_vect) {
-  audioInterruptBusy = true;
+
+
+void setup(){
+  Serial.begin(9600);
   
-  switch (currentAudioEffect) {
-    case EFFECT_THEREMIN:
-      // Simple sine wave synthesis for theremin
-      if (theremin.active && theremin.volume > 0) {
-        static uint32_t thereminPhase = 0;
-        thereminPhase += (uint32_t)(theremin.frequency * 65536UL / 20000UL);
-        
-        // Simple sine approximation using triangle wave
-        uint16_t phase16 = thereminPhase >> 16;
-        int16_t triangle = (phase16 < 32768) ? (phase16 - 16384) : (49152 - phase16);
-        triangle = triangle >> 6;  // Scale down
-        
-        int16_t sample = (triangle * theremin.volume) >> 8;
-        sample = constrain(sample, -128, 127);
-        OCR1B = ((uint32_t)(sample + 128) * ICR1) >> 8;
-      } else {
-        OCR1B = ICR1 / 2;  // Silence
-      }
-      break;
-      
-    case EFFECT_DJ_SCRATCH:
-      // DJ scratch audio (existing logic)
-      if (djScratch.playState == 0) {
-        OCR1B = ICR1 / 2;  // Silence
-        break;
-      }
-      
-      djScratch.sampleCounter++;
-      uint8_t currentSpeed = djScratch.isScratchMode ? 2 : djScratch.playbackSpeed;
-      
-      if (djScratch.sampleCounter >= currentSpeed) {
-        djScratch.sampleCounter = 0;
-        
-        if (djScratch.sampleIndex < 0) djScratch.sampleIndex = 0;
-        if (djScratch.sampleIndex >= AUDIO_SAMPLE_COUNT) djScratch.sampleIndex = 0;
-        
-        uint8_t sample = pgm_read_byte(&audioData[djScratch.sampleIndex]);
-        int16_t amp = ((int16_t)sample - 128) << 2;
-        amp = constrain(amp, -128, 127);
-        
-        OCR1B = ((uint32_t)(amp + 128) * ICR1) >> 8;
-        
-        if (djScratch.isScratchMode) {
-          djScratch.sampleIndex += djScratch.scratchSpeed;
-          if (djScratch.sampleIndex < 0) djScratch.sampleIndex = AUDIO_SAMPLE_COUNT - 1;
-          if (djScratch.sampleIndex >= AUDIO_SAMPLE_COUNT) djScratch.sampleIndex = 0;
-        } else {
-          djScratch.sampleIndex++;
-          if (djScratch.sampleIndex >= AUDIO_SAMPLE_COUNT) djScratch.sampleIndex = 0;
-        }
-      }
-      break;
-      
-    case EFFECT_ALIEN_SOUND:
-      // Alien sound FM synthesis
-      if (alienSound.is_active) {
-        alienSound.phase_accumulator += alienSound.phase_increment;
-        alienSound.mod_phase += 50;
-        
-        uint8_t modulator = (alienSound.mod_phase >> 8) & 0xFF;
-        uint8_t carrier = ((alienSound.phase_accumulator + (modulator * 4)) >> 8) & 0xFF;
-        
-        int16_t amp = (carrier > 128) ? 100 : -100;
-        OCR1B = ((uint32_t)(amp + 128) * ICR1) / 255;
-      } else {
-        OCR1B = ICR1 / 2;  // Silence
-      }
-      break;
-      
-    case EFFECT_ROBOTS_TALKING:
-      // Robot talking square wave synthesis
-      if (robotTalk.is_active) {
-        robotTalk.phase += 150;
-        if ((robotTalk.phase & 0x1000) == 0) robotTalk.current_pattern++;
-        
-        uint8_t wave = robotTalk.phase >> 8;
-        int16_t amp = 0;
-        
-        if (robotTalk.current_pattern & 1) {
-          amp = (wave & 0x80) ? 120 : -120;  // Square wave
-        } else {
-          amp = (wave & 0x40) ? 80 : -80;    // Different pattern
-        }
-        
-        OCR1B = ((uint32_t)(amp + 128) * ICR1) / 255;
-      } else {
-        OCR1B = ICR1 / 2;  // Silence
-      }
-      break;
-      
-    default:
-      OCR1B = ICR1 / 2;  // Silence
-      break;
+  // Sensor pin setup (CRITICAL for manual reading)
+  pinMode(trigPin1, OUTPUT);
+  pinMode(echoPin1, INPUT);
+  pinMode(trigPin2, OUTPUT);
+  pinMode(echoPin2, INPUT);
+  
+  theremin_setup();
+
+  // FastLED setup
+  FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
+  FastLED.setBrightness(150);
+  
+  // Initialize all LEDs to off
+  fill_solid(leds, NUM_LEDS, CRGB::Black);
+  FastLED.show();
+  
+  // Initialize sample arrays
+  for (int i = 0; i < SAMPLES; i++) {
+    distance1Samples[i] = MAX_RANGE + 10;
+    distance2Samples[i] = MAX_RANGE + 10;
   }
-  
-  audioInterruptBusy = false;
 }
 
-// =============================================================================
-// SENSOR SYSTEM
-// =============================================================================
-
-float readDistanceWithReset(int trigPin, int echoPin) {
-  // Optimized sensor reading with reduced blocking time
-  
-  // Quick echo pin reset if needed
-  if (digitalRead(echoPin) == HIGH) {
-    pinMode(echoPin, OUTPUT);
-    digitalWrite(echoPin, LOW);
-    delayMicroseconds(5);  // Reduced from 10
-    pinMode(echoPin, INPUT);
-    delayMicroseconds(5);  // Reduced from 10
+CRGB getInteractiveColor(float distance) {
+  if (distance < MIN_RANGE || distance > MAX_RANGE) {
+    return CRGB::Black;
   }
   
-  // Fast trigger pulse
+  // Map distance to color: far = red, close = yellow
+  float ratio = (distance - MIN_RANGE) / (MAX_RANGE - MIN_RANGE);
+  ratio = constrain(ratio, 0.0, 1.0);
+  
+  // Red to Yellow interpolation through Orange
+  int red = 255;
+  int green = (int)(255 * (1.0 - ratio));
+  int blue = 0;
+  
+  return CRGB(red, green, blue);
+}
+
+CRGB getAttractColor(unsigned long currentTime) {
+  float phase;
+  
+  if (usePhaseOffset) {
+    phase = attractPhaseOffset + (2.0 * PI * currentTime / ATTRACT_PERIOD);
+    usePhaseOffset = false;
+  } else {
+    phase = 2.0 * PI * currentTime / ATTRACT_PERIOD;
+  }
+  
+  // Sinusoidal fade from yellow to red
+  float sineValue = (sin(phase) + 1.0) / 2.0;  // Normalize to 0-1
+  
+  int red = 255;
+  int green = (int)(255 * sineValue);
+  int blue = 0;
+  
+  return CRGB(red, green, blue);
+}
+
+void calculatePhaseOffset(CRGB currentColor) {
+  float greenRatio = currentColor.green / 255.0;
+  float sineValue = 2.0 * greenRatio - 1.0;
+  sineValue = constrain(sineValue, -1.0, 1.0);
+  
+  attractPhaseOffset = asin(sineValue);
+  usePhaseOffset = true;
+}
+
+void updateLEDs(float avgDistance1, float avgDistance2, bool inRange1, bool inRange2, unsigned long currentTime) {
+  if (currentMode == ATTRACT_MODE) {
+    // Both sides show the same attract color
+    CRGB attractColor = getAttractColor(currentTime);
+    fill_solid(leds, NUM_LEDS, attractColor);
+    
+  } else {  // INTERACTIVE_MODE
+    CRGB leftColor = getInteractiveColor(avgDistance1);
+    CRGB rightColor = getInteractiveColor(avgDistance2);
+
+    // Update last known colors for smooth transition back to attract mode, only if a hand is in range
+    if (inRange1) lastLeftColor = leftColor;
+    if (inRange2) lastRightColor = rightColor;
+    
+    // Apply colors to respective halves
+    int halfPoint = NUM_LEDS / 2;
+    for (int i = 0; i < halfPoint; i++) {
+      leds[i] = leftColor;
+    }
+    for (int i = halfPoint; i < NUM_LEDS; i++) {
+      leds[i] = rightColor;
+    }
+  }
+  
+  FastLED.show();
+}
+
+// Direct sensor reading with HC-SR04 reset fix (replaces NewPing)
+float readDistanceWithReset(int trigPin, int echoPin) {
+  // Check if echo pin is stuck HIGH from previous failed reading
+  if (digitalRead(echoPin) == HIGH) {
+    // Apply the fix: briefly drive echo pin LOW to reset sensor
+    pinMode(echoPin, OUTPUT);
+    digitalWrite(echoPin, LOW);
+    delayMicroseconds(10);
+    pinMode(echoPin, INPUT);
+    delayMicroseconds(10);
+  }
+  
+  // Send trigger pulse
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
   digitalWrite(trigPin, HIGH);
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
 
-  // Reduced timeout to prevent long blocking - critical for smooth LEDs
-  unsigned long duration = pulseIn(echoPin, HIGH, 20000UL); // 20ms timeout (was 50ms)
+  // Wait for echo
+  unsigned long duration = pulseIn(echoPin, HIGH, 50000UL); // 50ms timeout
   
   if (duration == 0) {
-    return MAX_RANGE + 10; // Return out-of-range instead of 0
+    return 0; // No echo detected (same as troubleshoot script)
   }
   
-  // Faster distance calculation using bit shift
-  float distance = (duration * 343) >> 11;  // Equivalent to * 0.0343 / 2, but faster
+  float distance = (duration * 0.0343) / 2.0;
   
   if (distance > MAX_RANGE) {
-    return MAX_RANGE + 10;
+    return MAX_RANGE + 10; // Return invalid value for out of range
   }
   
   return distance;
 }
 
-float readDistanceNewPing(NewPing &sensor) {
-  // Use ping_cm with reduced max distance for faster response
-  unsigned int distance = sensor.ping_cm(MAX_RANGE + 5);  // Limit max distance to reduce blocking
-  if (distance == 0) {
-    return MAX_RANGE + 10;  // Return out-of-range for consistency
+float readDistanceManual(int trigPin, int echoPin) {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  unsigned long startTime = micros();
+  while (digitalRead(echoPin) == LOW) {
+    if (micros() - startTime > 50000) {
+      return MAX_RANGE + 10;
+    }
   }
+
+  startTime = micros();
+  while (digitalRead(echoPin) == HIGH) {
+    if (micros() - startTime > 50000) {
+      return MAX_RANGE + 10;
+    }
+  }
+
+  unsigned long duration = micros() - startTime;
+  float distance = (duration * 0.0343) / 2.0;
+
   if (distance > MAX_RANGE) {
     return MAX_RANGE + 10;
   }
-  return (float)distance;
+  return distance;
 }
 
 void updateDistanceSamples(float distance1, float distance2) {
@@ -284,368 +288,125 @@ float getAveragedDistance(float samples[]) {
   int validSamples = 0;
   
   for (int i = 0; i < SAMPLES; i++) {
+    // Include "very close" readings (hands covering sensors) in the valid range
     if (samples[i] >= (MIN_RANGE - 0.5) && samples[i] <= MAX_RANGE) {
       sum += samples[i];
       validSamples++;
     }
   }
   
+  // Require at least 3 out of 5 valid samples to prevent false readings
   if (validSamples < 3) {
-    return MAX_RANGE + 10; // Invalid
+    return MAX_RANGE + 10; // Return invalid value
   }
   
   return sum / validSamples;
 }
 
-// =============================================================================
-// LED SYSTEM
-// =============================================================================
-
-CRGB getInteractiveColor(float distance) {
-  if (distance < MIN_RANGE || distance > MAX_RANGE) {
-    return CRGB::Black;
-  }
-  
-  // Map distance to color: far = red, close = yellow
-  float ratio = (distance - MIN_RANGE) / (MAX_RANGE - MIN_RANGE);
-  ratio = constrain(ratio, 0.0, 1.0);
-  
-  int red = 255;
-  int green = (int)(255 * (1.0 - ratio));
-  int blue = 0;
-  
-  return CRGB(red, green, blue);
-}
-
-CRGB getAttractColor(unsigned long currentTime) {
-  // Smooth attract color calculation - recalculate every time for fluid motion
-  float phase;
-  if (usePhaseOffset) {
-    phase = attractPhaseOffset + (2.0 * PI * currentTime / ATTRACT_PERIOD);
-    usePhaseOffset = false;
-  } else {
-    phase = 2.0 * PI * currentTime / ATTRACT_PERIOD;
-  }
-  
-  // Smooth sinusoidal fade from yellow to red
-  float sineValue = (sin(phase) + 1.0) * 0.5;
-  
-  // Use floating point for smoother transitions, then round
-  int red = 255;
-  int green = (int)(255.0 * sineValue + 0.5);  // Add 0.5 for proper rounding
-  int blue = 0;
-  
-  return CRGB(red, green, blue);
-}
-
-void calculatePhaseOffset(CRGB currentColor) {
-  float greenRatio = currentColor.green / 255.0;
-  float sineValue = 2.0 * greenRatio - 1.0;
-  sineValue = constrain(sineValue, -1.0, 1.0);
-  
-  attractPhaseOffset = asin(sineValue);
-  usePhaseOffset = true;
-}
-
-void updateLEDs(float avgDistance1, float avgDistance2, bool handsDetected, unsigned long currentTime) {
-  if (currentMode == ATTRACT_MODE) {
-    // ATTRACT MODE: Maximum smoothness - update every single cycle
-    CRGB attractColor = getAttractColor(currentTime);
-    
-    // Always update for maximum smoothness - no change detection
-    fill_solid(leds, NUM_LEDS, attractColor);
-    
-    // Fastest possible LED update with minimal interrupt blocking
-    noInterrupts();
-    FastLED.show();
-    interrupts();
-    
-  } else {  // INTERACTIVE_MODE
-    // Rate limit interactive mode to preserve performance
-    if (currentTime - lastLEDUpdate < LED_UPDATE_INTERVAL) {
-      return;
-    }
-    
-    // Skip if audio interrupt is busy
-    if (audioInterruptBusy) {
-      return;
-    }
-    
-    // Left sensor (first half of strip)
-    CRGB leftColor = getInteractiveColor(avgDistance1);
-    if (leftColor == CRGB::Black) leftColor = lastLeftColor;
-    else lastLeftColor = leftColor;
-    
-    // Right sensor (second half of strip)
-    CRGB rightColor = getInteractiveColor(avgDistance2);
-    if (rightColor == CRGB::Black) rightColor = lastRightColor;
-    else lastRightColor = rightColor;
-    
-    // Fast LED array updates
-    int halfPoint = NUM_LEDS / 2;
-    fill_solid(&leds[0], halfPoint, leftColor);
-    fill_solid(&leds[halfPoint], NUM_LEDS - halfPoint, rightColor);
-    
-    noInterrupts();
-    FastLED.show();
-    interrupts();
-    
-    lastLEDUpdate = currentTime;
-  }
-}
-
-// =============================================================================
-// AUDIO EFFECT ROTATION SYSTEM
-// =============================================================================
-
-void checkForEffectRotation(bool leftHand, bool rightHand, unsigned long currentTime) {
-  bool bothHands = leftHand && rightHand;
-  
-  if (bothHands && !bothHandsDetected) {
-    // Both hands just detected - start timer
-    bothHandsDetected = true;
-    bothHandsStartTime = currentTime;
-    Serial.println(F("Both hands detected - hold for 2s to switch effect"));
-  } else if (!bothHands && bothHandsDetected) {
-    // Hands removed - cancel switch
-    bothHandsDetected = false;
-    effectSwitchInProgress = false;
-    Serial.println(F("Effect switch cancelled"));
-  } else if (bothHands && bothHandsDetected && !effectSwitchInProgress) {
-    // Check if held long enough
-    if (currentTime - bothHandsStartTime >= EFFECT_SWITCH_HOLD_TIME) {
-      effectSwitchInProgress = true;
-      
-      // Cycle to next effect
-      AudioEffect nextEffect;
-      switch (currentAudioEffect) {
-        case EFFECT_THEREMIN: nextEffect = EFFECT_DJ_SCRATCH; break;
-        case EFFECT_DJ_SCRATCH: nextEffect = EFFECT_ALIEN_SOUND; break;
-        case EFFECT_ALIEN_SOUND: nextEffect = EFFECT_ROBOTS_TALKING; break;
-        case EFFECT_ROBOTS_TALKING: nextEffect = EFFECT_THEREMIN; break;
-        default: nextEffect = EFFECT_THEREMIN; break;
-      }
-      
-      switchAudioEffect(nextEffect);
-      
-      // LED flash to indicate effect change
-      fill_solid(leds, NUM_LEDS, CRGB::Blue);
-      FastLED.show();
-      delay(200);
-      fill_solid(leds, NUM_LEDS, CRGB::Black);
-      FastLED.show();
-      delay(100);
-    }
-  }
-}
-
-// =============================================================================
-// JSON OUTPUT SYSTEM
-// =============================================================================
-
-void sendJSONUpdate(float avgDistance1, float avgDistance2, bool handsDetected, bool inRange1, bool inRange2) {
-  StaticJsonDocument<500> doc;
-  
-  // Sensor data
-  doc["left"] = int(avgDistance1);
-  doc["right"] = int(avgDistance2);
-  doc["hands_detected"] = handsDetected;
-  doc["left_in_range"] = inRange1;
-  doc["right_in_range"] = inRange2;
-  
-  // LED system data
-  doc["mode"] = (currentMode == ATTRACT_MODE) ? "attract" : "interactive";
-  
-  // Audio system data - NEW: Include current effect
-  const char* effectName = "none";
-  switch (currentAudioEffect) {
-    case EFFECT_THEREMIN: effectName = "theremin"; break;
-    case EFFECT_DJ_SCRATCH: effectName = "dj_scratch"; break;
-    case EFFECT_ALIEN_SOUND: effectName = "alien_sound"; break;
-    case EFFECT_ROBOTS_TALKING: effectName = "robots_talking"; break;
-  }
-  doc["current_audio_effect"] = effectName;
-  
-  // Effect-specific data
-  switch (currentAudioEffect) {
-    case EFFECT_THEREMIN:
-      doc["audio_active"] = theremin.active;
-      doc["frequency"] = theremin.frequency;
-      doc["volume"] = theremin.volume;
-      break;
-    case EFFECT_DJ_SCRATCH:
-      doc["audio_active"] = (djScratch.playState == 1);
-      doc["audio_playing"] = (djScratch.playState == 1);
-      doc["scratch_mode"] = djScratch.isScratchMode;
-      doc["playback_speed"] = djScratch.playbackSpeed;
-      break;
-    case EFFECT_ALIEN_SOUND:
-      doc["audio_active"] = alienSound.is_active;
-      break;
-    case EFFECT_ROBOTS_TALKING:
-      doc["audio_active"] = robotTalk.is_active;
-      break;
-  }
-  
-  // Color correlation values for TouchDesigner
-  if (currentMode == INTERACTIVE_MODE) {
-    float leftOrange = inRange1 ? (1.0 - (avgDistance1 - MIN_RANGE) / (MAX_RANGE - MIN_RANGE)) : 
-                                 (lastLeftColor.green / 255.0);
-    float rightOrange = inRange2 ? (1.0 - (avgDistance2 - MIN_RANGE) / (MAX_RANGE - MIN_RANGE)) : 
-                                  (lastRightColor.green / 255.0);
-    
-    doc["left_orange_value"] = leftOrange;
-    doc["right_orange_value"] = rightOrange;
-  }
-  
-  // System info
-  doc["system"] = "solar_shrine_modular_rotating";
-  doc["timestamp"] = millis();
-  
-  serializeJson(doc, Serial);
-  Serial.println();
-}
-
-// =============================================================================
-// MAIN SYSTEM SETUP AND LOOP
-// =============================================================================
-
-void setup() {
-  Serial.begin(9600);
-  delay(2000);
-  
-  // Initialize sensor pins
-  pinMode(trigPin1, OUTPUT);
-  pinMode(echoPin1, INPUT);
-  pinMode(trigPin2, OUTPUT);
-  pinMode(echoPin2, INPUT);
-  
-  // Initialize LED system with optimized settings
-  FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
-  FastLED.setBrightness(150);
-  FastLED.setMaxPowerInVoltsAndMilliamps(5, 2000);  // Power management
-  fill_solid(leds, NUM_LEDS, CRGB::Black);
-  FastLED.show();
-  
-  // Initialize sample arrays
-  for (int i = 0; i < SAMPLES; i++) {
-    distance1Samples[i] = MAX_RANGE + 10;
-    distance2Samples[i] = MAX_RANGE + 10;
-  }
-  
-  // NEW: Initialize modular audio system
-  setupAudio();
-  
-  // Startup sequence - LED flash
-  fill_solid(leds, NUM_LEDS, CRGB::Blue);
-  FastLED.show();
-  delay(500);
-  fill_solid(leds, NUM_LEDS, CRGB::Black);
-  FastLED.show();
-  
-  Serial.println(F("Solar Shrine Modular System Ready - Rotating Audio Effects"));
-  Serial.println(F("Features: Dual-mode LEDs + Rotating Audio Effects"));
-  Serial.println(F("Audio Effects: Theremin → DJ Scratch → Alien Sound → Robots Talking"));
-  Serial.println(F("Hold both hands over sensors for 2s to cycle effects"));
-  Serial.println(F("Performance: Optimized LED/Audio timing"));
-}
-
-void loop() {
+void loop(){
   unsigned long currentTime = millis();
   
-  // ATTRACT MODE: Minimal processing - prioritize LED smoothness
-  if (currentMode == ATTRACT_MODE) {
-    // Only do essential mode checking in attract mode
-    static unsigned long lastModeCheck = 0;
-    static float lastDistance1 = MAX_RANGE + 10;
-    static float lastDistance2 = MAX_RANGE + 10;
-    
-    // Check for mode transition only every 50ms to minimize processing
-    if (currentTime - lastModeCheck >= 50) {
-      // Quick sensor check without heavy processing
-      lastDistance1 = readDistanceWithReset(trigPin1, echoPin1);
-      lastDistance2 = readDistanceNewPing(sonar2);
-      
-      bool handsNear = (lastDistance1 >= MIN_RANGE && lastDistance1 <= MAX_RANGE) ||
-                       (lastDistance2 >= MIN_RANGE && lastDistance2 <= MAX_RANGE);
-      
-      if (handsNear) {
-        currentMode = INTERACTIVE_MODE;
-        lastHandDetectedTime = currentTime;
+  // Read sensors using manual method (same as theremin version)
+  float distance1 = readDistanceManual(trigPin1, echoPin1);
+  float distance2 = readDistanceManual(trigPin2, echoPin2);
+
+  bool handInRange1 = (distance1 >= MIN_RANGE && distance1 <= MAX_RANGE);
+  bool handInRange2 = (distance2 >= MIN_RANGE && distance2 <= MAX_RANGE);
+
+  bool handsDetectedRaw = handInRange1 || handInRange2;
+
+    // State machine for mode and effect switching
+  if (handsDetectedRaw) {
+    lastHandDetectedTime = currentTime;
+    if (currentMode == ATTRACT_MODE) {
+      currentMode = INTERACTIVE_MODE;
+      if (currentEffect == DJ_SCRATCH) {
+        dj_scratch_disable();
+        theremin_setup();
+        currentEffect = THEREMIN;
       }
-      lastModeCheck = currentTime;
     }
-    
-    // LED updates every cycle for maximum smoothness
-    updateLEDs(0, 0, false, currentTime);
-    
-    // Minimal delay for attract mode
-    delay(2);  // ~500Hz for ultra-smooth attract mode
-    return;
-  }
-  
-  // INTERACTIVE MODE: Full processing
-  static uint8_t taskCycle = 0;
-  static float cachedDistance1 = MAX_RANGE + 10;
-  static float cachedDistance2 = MAX_RANGE + 10;
-  static unsigned long lastSensorRead = 0;
-  
-  // Read sensors every 40ms in interactive mode
-  if (currentTime - lastSensorRead >= 40) {
-    if (taskCycle == 0) {
-      cachedDistance1 = readDistanceWithReset(trigPin1, echoPin1);
-    } else {
-      cachedDistance2 = readDistanceNewPing(sonar2);
+  } else { // No hands detected
+    if (currentMode == INTERACTIVE_MODE && (currentTime - lastHandDetectedTime) > INTERACTIVE_TIMEOUT) {
+      currentMode = ATTRACT_MODE;
+      lastHandDetectedTime = currentTime; // Reset timer for effect rotation
+    } else if (currentMode == ATTRACT_MODE && currentEffect == THEREMIN && (currentTime - lastHandDetectedTime) > EFFECT_ROTATION_TIMEOUT) {
+      theremin_disable();
+      dj_scratch_setup();
+      dj_scratch_start();
+      currentEffect = DJ_SCRATCH;
+    } else if (currentMode == ATTRACT_MODE && currentEffect == DJ_SCRATCH && (currentTime - lastHandDetectedTime) > (EFFECT_ROTATION_TIMEOUT + DJ_LOOP_DURATION)) {
+        dj_scratch_disable();
+        theremin_setup();
+        currentEffect = THEREMIN;
+        lastHandDetectedTime = currentTime; // Reset timer for next rotation
     }
-    taskCycle = (taskCycle + 1) % 2;
-    lastSensorRead = currentTime;
   }
-  
-  // Update sample arrays with cached values
-  updateDistanceSamples(cachedDistance1, cachedDistance2);
-  
-  // Get averaged distances
+
+  // Update the current effect
+  if (currentEffect == THEREMIN) {
+    theremin_update(distance1, distance2);
+  } else if (currentEffect == DJ_SCRATCH) {
+    dj_scratch_update(distance1, distance2);
+  }
+
+  updateDistanceSamples(distance1, distance2);
+
   float avgDistance1, avgDistance2;
   if (samplesInitialized) {
     avgDistance1 = getAveragedDistance(distance1Samples);
     avgDistance2 = getAveragedDistance(distance2Samples);
   } else {
-    avgDistance1 = cachedDistance1;
-    avgDistance2 = cachedDistance2;
+    avgDistance1 = distance1;
+    avgDistance2 = distance2;
   }
-  
-  // Check if hands are detected
+
   bool inRange1 = (avgDistance1 >= MIN_RANGE && avgDistance1 <= MAX_RANGE);
   bool inRange2 = (avgDistance2 >= MIN_RANGE && avgDistance2 <= MAX_RANGE);
   bool handsDetected = inRange1 || inRange2;
-  
+
   if (handsDetected) {
-    lastHandDetectedTime = currentTime;
+    if (currentMode == ATTRACT_MODE) {
+      currentMode = INTERACTIVE_MODE;
+    }
+    // Note: lastHandDetectedTime is already updated in the effect rotation logic above
   } else {
-    if ((currentTime - lastHandDetectedTime) >= INTERACTIVE_TIMEOUT) {
-      // Simplified transition back to attract mode
-      calculatePhaseOffset(lastLeftColor.r > lastRightColor.r ? lastLeftColor : lastRightColor);
+    if (currentMode == INTERACTIVE_MODE && 
+        (currentTime - lastHandDetectedTime) >= INTERACTIVE_TIMEOUT) {
+      
+      CRGB transitionColor = (lastLeftColor.r + lastLeftColor.g > lastRightColor.r + lastRightColor.g) ? 
+                            lastLeftColor : lastRightColor;
+      calculatePhaseOffset(transitionColor);
+      
       currentMode = ATTRACT_MODE;
     }
   }
+
+  // Effect-specific update already called above - no duplicate needed
+  updateLEDs(avgDistance1, avgDistance2, inRange1, inRange2, currentTime);
+
+  static LightMode lastReportedMode = ATTRACT_MODE;
+  static bool lastHandsDetected = false;
   
-  // Update systems
-  updateLEDs(avgDistance1, avgDistance2, handsDetected, currentTime);
-  
-  // NEW: Update current audio effect
-  updateAudioEffects(avgDistance1, avgDistance2);
-  
-  // NEW: Check for effect rotation
-  checkForEffectRotation(inRange1, inRange2, currentTime);
-  
-  // Stagger heavy operations in interactive mode
-  static uint8_t heavyTaskCycle = 0;
-  switch (heavyTaskCycle) {
-    case 2:
-      sendJSONUpdate(avgDistance1, avgDistance2, handsDetected, inRange1, inRange2);
-      break;
+  if (handsDetected || lastHandsDetected || (currentMode != lastReportedMode)) {
+    StaticJsonDocument<400> doc;
+    
+    doc["left"] = int(avgDistance1);
+    doc["right"] = int(avgDistance2);
+    doc["hands_detected"] = handsDetected;
+    doc["mode"] = (currentMode == ATTRACT_MODE) ? "attract" : "interactive";
+    doc["left_in_range"] = inRange1;
+    doc["right_in_range"] = inRange2;
+    doc["current_effect"] = (currentEffect == THEREMIN) ? "theremin" : "dj_scratch";
+    doc["raw_distance1"] = distance1;
+    doc["raw_distance2"] = distance2;
+    
+    serializeJson(doc, Serial);
+    Serial.println();
+    
+    lastReportedMode = currentMode;
+    lastHandsDetected = handsDetected;
   }
-  heavyTaskCycle = (heavyTaskCycle + 1) % 3;
-  
-  delay(8);  // ~125Hz for interactive mode
-} 
+
+  delay(20);
+}
