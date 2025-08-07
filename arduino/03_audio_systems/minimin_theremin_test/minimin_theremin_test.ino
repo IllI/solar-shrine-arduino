@@ -19,10 +19,14 @@
  
  Hardware:
  - 2x HC-SR04 sensors on pins 5,6,10,11 
- - Audio output on pin 9 (Mozzi default)
+ - Audio output on pin 12 (Mozzi 2-pin PWM mode)
 *********************************************************************************/
 
 //   download Mozzi library from https://sensorium.github.io/Mozzi/ 
+
+// Configure Mozzi for 2-pin PWM mode for output on pin 12
+#include <MozziConfigValues.h>
+#define MOZZI_AUDIO_MODE MOZZI_OUTPUT_2PIN_PWM
 
 #include <MozziGuts.h>
 #include <Oscil.h> 
@@ -56,7 +60,7 @@ int averaged;
 const int volOut = 5;                         // Volume sensor trigger (left sensor)
 const int volIn = 6;                          // Volume sensor echo (left sensor)
 const int pitchOut = 10;                      // Pitch sensor trigger (right sensor) 
-const int pitchIn = 11;                       // Pitch sensor echo (right sensor)
+const int pitchIn = 7;                        // Pitch sensor echo (right sensor) - MOVED FROM 11 to avoid Mozzi conflict
 
 // Sensor thresholds (in microseconds, not cm) - INCREASED for better sensitivity
 const int pitchLowThreshold = 800;            // Farthest pitch distance (was 450)
@@ -236,4 +240,4 @@ int updateAudio(){
 
 void loop(){
   audioHook();                 // Required for Mozzi
-} 
+}
