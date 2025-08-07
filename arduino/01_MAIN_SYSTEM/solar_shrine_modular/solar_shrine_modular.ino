@@ -140,7 +140,6 @@ void setup(){
   unsigned long now = millis();
   lastHandDetectedTime = now;
   lastEffectRotationTime = now;
-  effect_setup(currentEffect);
 }
 
 CRGB getInteractiveColor(float distance) {
@@ -206,7 +205,6 @@ void effect_setup(EffectType effect) {
   switch (effect) {
     case DJ_SCRATCH:
       dj_scratch_setup();
-      dj_scratch_start();
       break;
     case ALIEN: alien_setup(); break;
     case ROBOTS: robots_setup(); break;
@@ -321,6 +319,9 @@ void updateDistanceSamples(float distance1, float distance2) {
   distance2Samples[sampleIndex] = distance2;
   
   sampleIndex = (sampleIndex + 1) % SAMPLES;
+  if (sampleIndex == 0) {
+    samplesInitialized = true;
+  }
 }
 
 float getAveragedDistance(float samples[]) {
@@ -348,6 +349,7 @@ float getAveragedDistance(float samples[]) {
 
 void loop() {
   unsigned long currentTime = millis();
+  unsigned long sinceLastHand = currentTime - lastHandDetectedTime;
   
   // Read sensors
   float distance1 = readDistanceWithReset(trigPin1, echoPin1);
@@ -373,26 +375,29 @@ void loop() {
 
   // State machine for mode and effect switching
   if (handsDetected) {
+    // Rising edge: set up whichever effect is currently selected by rotation
+    if (!prevHandsDetected) {
+      effect_setup(currentEffect);
+      if (currentEffect == DJ_SCRATCH) {
+        dj_scratch_start();
+      }
+    }
     lastHandDetectedTime = currentTime;
     if (currentMode == ATTRACT_MODE) {
       currentMode = INTERACTIVE_MODE;
       // On entering interactive, leave current effect as-is
     }
-    if (!prevHandsDetected) {
-      // Re-initialize current effect after idle silence (Timer1/NewTone was disabled)
-      effect_setup(currentEffect);
-    }
   } else { // No hands detected
-    unsigned long sinceLastHand = currentTime - lastHandDetectedTime;
     if (currentMode == INTERACTIVE_MODE && sinceLastHand > INTERACTIVE_TIMEOUT) {
       currentMode = ATTRACT_MODE; // Back to attract after 10s
       lastEffectRotationTime = currentTime; // reset rotation cadence
     } else if (sinceLastHand > EFFECT_SWITCH_TIMEOUT) {
       // Rotate effects every 5s of no hands
       if (currentTime - lastEffectRotationTime >= EFFECT_SWITCH_TIMEOUT) {
+        // Keep hardware silent while rotating through effects with no hands
         effect_disable(currentEffect);
         currentEffect = nextEffect(currentEffect);
-        effect_setup(currentEffect);
+        // Defer setup until hands are detected to avoid any audio during idle
         lastEffectRotationTime = currentTime;
         Serial.print(F("Rotated effect to: "));
         Serial.println(effect_name(currentEffect));
@@ -405,6 +410,10 @@ void loop() {
     effect_update(currentEffect, distance1, distance2);
   } else {
     audio_all_off();
+    // On falling edge, ensure current effect is fully disabled as well
+    if (prevHandsDetected && !handsDetected) {
+      effect_disable(currentEffect);
+    }
   }
 
   // Update hand edge tracker

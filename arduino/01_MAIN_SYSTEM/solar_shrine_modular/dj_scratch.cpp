@@ -10,6 +10,10 @@ volatile uint8_t playbackSpeed = 5;
 volatile int8_t scratchSpeed = 1;
 volatile bool isScratchMode = false;
 
+// Distance thresholds (in centimeters)
+static const int MIN_CM = 5;
+static const int MAX_CM = 50;
+
 void dj_scratch_setup() {
   pinMode(12, OUTPUT);  // Use pin 12 for Timer1 PWM on Mega
   
@@ -70,7 +74,17 @@ void dj_scratch_start() {
 }
 
 void dj_scratch_update(float d1, float d2) {
-  bool rightHand = (d2 > 0.5 && d2 < 20.0);
+  // Use raw distances from sensors
+  bool rightInRange = (d2 >= MIN_CM && d2 <= MAX_CM);
+  bool leftInRange = (d1 >= MIN_CM && d1 <= MAX_CM);
+
+  // If the right hand is not in range, stop playback completely
+  if (!rightInRange) {
+    playState = 0;           // Stop audio in ISR
+    isScratchMode = false;
+    OCR1B = ICR1 / 2;        // Ensure silence duty
+    return;
+  }
 
   static bool prevRightHand = false;
   static unsigned long lastTransition = 0;
@@ -79,17 +93,17 @@ void dj_scratch_update(float d1, float d2) {
   static unsigned long rightHandStartTime = 0;
     static unsigned long lastRightHandDetected = 0;
 
-    if (rightHand) {
+    if (rightInRange) {
         lastRightHandDetected = millis();
     }
 
-    if (rightHand != prevRightHand) {
+    if (rightInRange != prevRightHand) {
         lastTransition = millis();
         transitionCount++;
         scratchDirection = -scratchDirection;
     }
 
-    if (rightHand && !prevRightHand) {
+    if (rightInRange && !prevRightHand) {
         rightHandStartTime = millis();
     }
 
@@ -97,27 +111,29 @@ void dj_scratch_update(float d1, float d2) {
         transitionCount = 0;
     }
 
-    if (!rightHand && (millis() - lastRightHandDetected) > 200) {
+    if (!rightInRange && (millis() - lastRightHandDetected) > 200) {
         if (isScratchMode) {
             isScratchMode = false;
             scratchSpeed = 1;
             playbackSpeed = 5;
             transitionCount = 0;
         }
-    } else if (rightHand && transitionCount >= 2 && (millis() - lastTransition) < 300) {
+    } else if (rightInRange && transitionCount >= 2 && (millis() - lastTransition) < 300) {
         isScratchMode = true;
         if (transitionCount >= 4) {
             scratchSpeed = scratchDirection * 6;
         } else {
             scratchSpeed = scratchDirection * 3;
         }
-    } else if (rightHand && (millis() - rightHandStartTime) > 300) {
+    } else if (rightInRange && (millis() - rightHandStartTime) > 300) {
         isScratchMode = false;
         scratchSpeed = 1;
-        float ratio = (d2 - 1.0) / (20.0 - 1.0);
+        float ratio = (d2 - (float)MIN_CM) / (float)(MAX_CM - MIN_CM);
         ratio = constrain(ratio, 0.0, 1.0);
         playbackSpeed = (uint8_t)(5 + (10 * ratio));
     }
 
-    prevRightHand = rightHand;
+    // Ensure playback is running only when the right hand is present
+    playState = 1; // enable audio ISR output
+    prevRightHand = rightInRange;
 }
