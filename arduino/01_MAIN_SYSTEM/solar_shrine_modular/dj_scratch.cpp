@@ -25,6 +25,10 @@ void dj_scratch_disable() {
     TIMSK1 &= ~_BV(OCIE1B); // Disable Timer1 interrupt
     playState = 0;
     OCR1B = ICR1 / 2; // Set to silence
+    // Fully release Timer1 and pin 12 so other effects can drive AUDIO_PIN 12
+    TCCR1A = 0;
+    TCCR1B = 0;
+    pinMode(12, INPUT); // tri-state
 }
 
 ISR(TIMER1_COMPB_vect) {

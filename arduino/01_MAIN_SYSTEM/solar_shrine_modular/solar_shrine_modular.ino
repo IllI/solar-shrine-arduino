@@ -37,6 +37,8 @@
 #include <ArduinoJson.h>
 #include "dj_scratch.h"
 #include "theremin.h"
+#include "alien.h"
+#include "robots.h"
 // NewPing removed to avoid timer conflicts with NewTone
 
 // =============================================================================
@@ -67,15 +69,15 @@ CRGB leds[NUM_LEDS];
 // Effect types
 enum EffectType {
   DJ_SCRATCH,
-  THEREMIN
+  ALIEN,
+  ROBOTS,
+  MINITHEREMIN
 };
 
 EffectType currentEffect = DJ_SCRATCH; // Start with DJ Scratch
 
-const unsigned long INTERACTIVE_TIMEOUT = 10000; // 10 seconds to return to attract mode
-const unsigned long EFFECT_SWITCH_TIMEOUT = 5000;   // 5 seconds of no hands to switch effect
-const unsigned long EFFECT_ROTATION_TIMEOUT = 5000; // 5 seconds
-const unsigned long DJ_LOOP_DURATION = 5000; // 5 seconds
+const unsigned long INTERACTIVE_TIMEOUT = 10000; // 10s no hands -> back to attract
+const unsigned long EFFECT_SWITCH_TIMEOUT = 5000; // 5s no hands -> rotate effect
 
 
 // Mode constants
@@ -87,6 +89,7 @@ enum LightMode {
 // State variables
 LightMode currentMode = ATTRACT_MODE;
 unsigned long lastHandDetectedTime = 0;
+unsigned long lastEffectRotationTime = 0;
 
 // Attract mode variables
 const float ATTRACT_PERIOD = 5000.0;  // 5 seconds in milliseconds
@@ -132,6 +135,12 @@ void setup(){
     distance1Samples[i] = MAX_RANGE + 10;
     distance2Samples[i] = MAX_RANGE + 10;
   }
+
+  // Initialize timers for idle state and start first effect
+  unsigned long now = millis();
+  lastHandDetectedTime = now;
+  lastEffectRotationTime = now;
+  effect_setup(currentEffect);
 }
 
 CRGB getInteractiveColor(float distance) {
@@ -178,6 +187,72 @@ void calculatePhaseOffset(CRGB currentColor) {
   
   attractPhaseOffset = asin(sineValue);
   usePhaseOffset = true;
+}
+
+// =============================================================================
+// EFFECT MANAGEMENT
+// =============================================================================
+
+void effect_disable(EffectType effect) {
+  switch (effect) {
+    case DJ_SCRATCH: dj_scratch_disable(); break;
+    case ALIEN: alien_disable(); break;
+    case ROBOTS: robots_disable(); break;
+    case MINITHEREMIN: theremin_disable(); break;
+  }
+}
+
+void effect_setup(EffectType effect) {
+  switch (effect) {
+    case DJ_SCRATCH:
+      dj_scratch_setup();
+      dj_scratch_start();
+      break;
+    case ALIEN: alien_setup(); break;
+    case ROBOTS: robots_setup(); break;
+    case MINITHEREMIN: theremin_setup(); break;
+  }
+}
+
+void effect_update(EffectType effect, float dLeft, float dRight) {
+  switch (effect) {
+    case DJ_SCRATCH: dj_scratch_update(dLeft, dRight); break;
+    case ALIEN: alien_update(dLeft, dRight); break;
+    case ROBOTS: robots_update(dLeft, dRight); break;
+    case MINITHEREMIN: theremin_update(dLeft, dRight); break;
+  }
+}
+
+EffectType nextEffect(EffectType effect) {
+  switch (effect) {
+    case DJ_SCRATCH: return ALIEN;
+    case ALIEN: return ROBOTS;
+    case ROBOTS: return MINITHEREMIN;
+    case MINITHEREMIN: return DJ_SCRATCH;
+  }
+  return DJ_SCRATCH;
+}
+
+const char* effect_name(EffectType effect) {
+  switch (effect) {
+    case DJ_SCRATCH: return "dj_scratch";
+    case ALIEN: return "alien";
+    case ROBOTS: return "robots";
+    case MINITHEREMIN: return "mini_theremin";
+  }
+  return "dj_scratch";
+}
+
+// Hard kill audio output on pin 12 regardless of current effect
+void audio_all_off() {
+  // Stop NewTone
+  noNewTone(12);
+  // Disable DJ scratch Timer1 if active
+  TCCR1A = 0;
+  TCCR1B = 0;
+  TIMSK1 &= ~_BV(OCIE1B);
+  // Tri-state the pin
+  pinMode(12, INPUT);
 }
 
 void updateLEDs(float avgDistance1, float avgDistance2, bool inRange1, bool inRange2, unsigned long currentTime) {
@@ -293,40 +368,47 @@ void loop() {
   bool inRange2 = (avgDistance2 >= MIN_RANGE && avgDistance2 <= MAX_RANGE);
   bool handsDetected = inRange1 || inRange2;
 
+  // Detect rising edge of hand presence to re-initialize the active effect
+  static bool prevHandsDetected = false;
+
   // State machine for mode and effect switching
   if (handsDetected) {
     lastHandDetectedTime = currentTime;
     if (currentMode == ATTRACT_MODE) {
       currentMode = INTERACTIVE_MODE;
-      if (currentEffect == DJ_SCRATCH) {
-        dj_scratch_disable();
-        theremin_setup();
-        currentEffect = THEREMIN;
-      }
+      // On entering interactive, leave current effect as-is
+    }
+    if (!prevHandsDetected) {
+      // Re-initialize current effect after idle silence (Timer1/NewTone was disabled)
+      effect_setup(currentEffect);
     }
   } else { // No hands detected
-    if (currentMode == INTERACTIVE_MODE && (currentTime - lastHandDetectedTime) > INTERACTIVE_TIMEOUT) {
-      currentMode = ATTRACT_MODE;
-      lastHandDetectedTime = currentTime; // Reset timer for effect rotation
-    } else if (currentMode == ATTRACT_MODE && currentEffect == THEREMIN && (currentTime - lastHandDetectedTime) > EFFECT_ROTATION_TIMEOUT) {
-      theremin_disable();
-      dj_scratch_setup();
-      dj_scratch_start();
-      currentEffect = DJ_SCRATCH;
-    } else if (currentMode == ATTRACT_MODE && currentEffect == DJ_SCRATCH && (currentTime - lastHandDetectedTime) > (EFFECT_ROTATION_TIMEOUT + DJ_LOOP_DURATION)) {
-        dj_scratch_disable();
-        theremin_setup();
-        currentEffect = THEREMIN;
-        lastHandDetectedTime = currentTime; // Reset timer for next rotation
+    unsigned long sinceLastHand = currentTime - lastHandDetectedTime;
+    if (currentMode == INTERACTIVE_MODE && sinceLastHand > INTERACTIVE_TIMEOUT) {
+      currentMode = ATTRACT_MODE; // Back to attract after 10s
+      lastEffectRotationTime = currentTime; // reset rotation cadence
+    } else if (sinceLastHand > EFFECT_SWITCH_TIMEOUT) {
+      // Rotate effects every 5s of no hands
+      if (currentTime - lastEffectRotationTime >= EFFECT_SWITCH_TIMEOUT) {
+        effect_disable(currentEffect);
+        currentEffect = nextEffect(currentEffect);
+        effect_setup(currentEffect);
+        lastEffectRotationTime = currentTime;
+        Serial.print(F("Rotated effect to: "));
+        Serial.println(effect_name(currentEffect));
+      }
     }
   }
 
-  // Update the current effect
-  if (currentEffect == THEREMIN) {
-    theremin_update(distance1, distance2);
-  } else if (currentEffect == DJ_SCRATCH) {
-    dj_scratch_update(distance1, distance2);
+  // Update the current effect only if hands detected; otherwise ensure silence
+  if (handsDetected) {
+    effect_update(currentEffect, distance1, distance2);
+  } else {
+    audio_all_off();
   }
+
+  // Update hand edge tracker
+  prevHandsDetected = handsDetected;
 
   // Update LEDs
   updateLEDs(avgDistance1, avgDistance2, inRange1, inRange2, currentTime);
@@ -344,7 +426,11 @@ void loop() {
     doc["mode"] = (currentMode == ATTRACT_MODE) ? "attract" : "interactive";
     doc["left_in_range"] = inRange1;
     doc["right_in_range"] = inRange2;
-    doc["current_effect"] = (currentEffect == THEREMIN) ? "theremin" : "dj_scratch";
+    const char* effectName = "dj_scratch";
+    if (currentEffect == ALIEN) effectName = "alien";
+    else if (currentEffect == ROBOTS) effectName = "robots";
+    else if (currentEffect == MINITHEREMIN) effectName = "mini_theremin";
+    doc["current_effect"] = effectName;
     doc["raw_distance1"] = distance1;
     doc["raw_distance2"] = distance2;
     
