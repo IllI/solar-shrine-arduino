@@ -32,6 +32,9 @@
 
 //   download Mozzi library from https://sensorium.github.io/Mozzi/ 
 
+// Configure Mozzi for 2-pin PWM mode on Arduino Mega (CRITICAL FOR AUDIO)
+#define MOZZI_AUDIO_MODE MOZZI_OUTPUT_2PIN_PWM
+
 #include <MozziGuts.h>
 #include <Oscil.h> 
 #include <RollingAverage.h>
@@ -48,12 +51,7 @@ Oscil <COS2048_NUM_CELLS, CONTROL_RATE> vibrato(COS2048_DATA);
 
 const boolean stepMode = false;  // Set to true for note-snapping mode
 
-// Echo/Delay effect settings - REDUCED for Arduino Uno memory limits
-#define ECHO_BUFFER_SIZE 256     // Smaller buffer (256 * 2 bytes = 512 bytes)
-int echoBuffer[ECHO_BUFFER_SIZE];
-int echoIndex = 0;
-float echoMix = 0.3;            // Echo volume (0.0 to 1.0)
-int echoDelay = 128;            // Echo delay in samples (shorter but still audible)
+
 
 // C Minor Pentatonic scale - sounds beautiful and forgiving
 int notes[] = {131,131,131,156,156,175,175,196,196,196,233,233,       // C3 octave
@@ -70,11 +68,12 @@ float vibratoDepth = 0.03;                   // 3% frequency modulation
 float vibratoRate = 5.5;                     // 5.5 Hz vibrato rate
 int baseFreq = 0;                            // Base frequency before vibrato
 
-// Pin assignments adapted for your hardware
-const int volOut = 5;                         // Volume sensor trigger (left sensor)
-const int volIn = 6;                          // Volume sensor echo (left sensor)
-const int pitchOut = 10;                      // Pitch sensor trigger (right sensor) 
-const int pitchIn = 11;                       // Pitch sensor echo (right sensor)
+// Pin assignments for Solar Shrine Custom Shield with Mozzi on Mega
+// Pin assignments for Solar Shrine Custom Shield with Mozzi on Mega
+const int pitchOut = 10;                      // Left Sensor Trig
+const int pitchIn = 11;                       // Left Sensor Echo
+const int volOut = 5;                         // Right Sensor Trig
+const int volIn = 6;                          // Right Sensor Echo
 
 // Sensor thresholds (in microseconds, not cm) - INCREASED for better sensitivity
 const int pitchLowThreshold = 800;            // Farthest pitch distance (was 450)
@@ -103,10 +102,7 @@ void setup(){
   pinMode(volIn, INPUT);
   digitalWrite(volOut, LOW);
   
-  // Initialize echo buffer to silence
-  for (int i = 0; i < ECHO_BUFFER_SIZE; i++) {
-    echoBuffer[i] = 0;
-  }
+
   
   Serial.begin(9600);
   Serial.println("MiniMin Theremin Test - Enhanced with Echo!");
@@ -237,33 +233,10 @@ int updateAudio(){
   // Generate the main oscillator sample
   int sample = (osc.next() * smoothVol) >> 8;
   
-  // ECHO TEMPORARILY DISABLED - uncomment below to re-enable
-  /*
-  // Add echo effect - get sample from echoDelay positions back
-  int echoPos = (echoIndex - echoDelay + ECHO_BUFFER_SIZE) % ECHO_BUFFER_SIZE;
-  int echoSample = echoBuffer[echoPos];
-  int mixedSample = sample + (int)(echoSample * echoMix);
-  
-  // Store current sample in echo buffer for future echo
-  echoBuffer[echoIndex] = sample;
-  
-  // Move to next position in circular buffer
-  echoIndex++;
-  if (echoIndex >= ECHO_BUFFER_SIZE) {
-    echoIndex = 0;
-  }
-  
-  // Clip to prevent distortion
-  if (mixedSample > 127) mixedSample = 127;
-  if (mixedSample < -128) mixedSample = -128;
-  
-  return mixedSample;
-  */
-  
-  // Return clean sample without echo
+  // Return clean sample
   return sample;
 }
 
 void loop(){
   audioHook();                 // Required for Mozzi
-} 
+}

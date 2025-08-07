@@ -61,18 +61,18 @@ ISR(TIMER1_COMPB_vect) {
 }
 
 void dj_scratch_start() {
-    playState = 1;
-    djSampleIndex = 0;
+  playState = 1;
+  djSampleIndex = 0;
 }
 
 void dj_scratch_update(float d1, float d2) {
-    bool rightHand = (d2 > 0.5 && d2 < 20.0);
+  bool rightHand = (d2 > 0.5 && d2 < 20.0);
 
-    static bool prevRightHand = false;
-    static unsigned long lastTransition = 0;
-    static uint8_t transitionCount = 0;
-    static int8_t scratchDirection = 1;
-    static unsigned long rightHandStartTime = 0;
+  static bool prevRightHand = false;
+  static unsigned long lastTransition = 0;
+  static uint8_t transitionCount = 0;
+  static int8_t scratchDirection = 1;
+  static unsigned long rightHandStartTime = 0;
     static unsigned long lastRightHandDetected = 0;
 
     if (rightHand) {

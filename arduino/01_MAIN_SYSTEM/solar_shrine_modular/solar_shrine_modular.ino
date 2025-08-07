@@ -31,12 +31,12 @@
  * Date: 2024
  */
 
-#include "theremin.h"
 #include <NewTone.h>
-#include "dj_scratch.h"
 #define FASTLED_FORCE_BITBANG
 #include <FastLED.h>
 #include <ArduinoJson.h>
+#include "dj_scratch.h"
+#include "theremin.h"
 // NewPing removed to avoid timer conflicts with NewTone
 
 // =============================================================================
@@ -47,10 +47,9 @@
 const int trigPin1 = 10; // Left sensor
 const int echoPin1 = 11;
 const int trigPin2 = 5;  // Right sensor
-const int echoPin2 = 6;
-
+const int echoPin2 = 6; // Corrected from 12 to match hardware wiring and avoid audio conflict
 // Distance-based detection constants (in cm)
-const float MIN_RANGE = 5.0;                  // Minimum detection range in cm
+const float MIN_RANGE = 5.0;                  // MinimTheremin effect initializedum detection range in cm
 const float MAX_RANGE = 50.0;                 // Maximum detection range in cm
 
 const unsigned long SENSOR_TIMEOUT = 30000;   // Sensor timeout in microseconds
@@ -65,26 +64,29 @@ CRGB leds[NUM_LEDS];
 // NewPing setup
 // NewPing objects removed - using manual sensor reading
 
+// Effect types
+enum EffectType {
+  DJ_SCRATCH,
+  THEREMIN
+};
+
+EffectType currentEffect = DJ_SCRATCH; // Start with DJ Scratch
+
+const unsigned long INTERACTIVE_TIMEOUT = 10000; // 10 seconds to return to attract mode
+const unsigned long EFFECT_SWITCH_TIMEOUT = 5000;   // 5 seconds of no hands to switch effect
+const unsigned long EFFECT_ROTATION_TIMEOUT = 5000; // 5 seconds
+const unsigned long DJ_LOOP_DURATION = 5000; // 5 seconds
+
+
 // Mode constants
 enum LightMode {
   ATTRACT_MODE,
   INTERACTIVE_MODE
 };
 
-enum EffectType {
-  THEREMIN,
-  DJ_SCRATCH
-};
-
-EffectType currentEffect = THEREMIN;
-
 // State variables
 LightMode currentMode = ATTRACT_MODE;
 unsigned long lastHandDetectedTime = 0;
-const unsigned long INTERACTIVE_TIMEOUT = 10000;  // 10 seconds
-const unsigned long EFFECT_ROTATION_TIMEOUT = 5000; // 5 seconds
-const unsigned long DJ_LOOP_DURATION = 5000; // 5 seconds
-
 
 // Attract mode variables
 const float ATTRACT_PERIOD = 5000.0;  // 5 seconds in milliseconds
@@ -116,8 +118,6 @@ void setup(){
   pinMode(echoPin1, INPUT);
   pinMode(trigPin2, OUTPUT);
   pinMode(echoPin2, INPUT);
-  
-  theremin_setup();
 
   // FastLED setup
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
@@ -126,7 +126,7 @@ void setup(){
   // Initialize all LEDs to off
   fill_solid(leds, NUM_LEDS, CRGB::Black);
   FastLED.show();
-  
+  Serial.begin(9600);
   // Initialize sample arrays
   for (int i = 0; i < SAMPLES; i++) {
     distance1Samples[i] = MAX_RANGE + 10;
@@ -206,7 +206,6 @@ void updateLEDs(float avgDistance1, float avgDistance2, bool inRange1, bool inRa
   
   FastLED.show();
 }
-
 // Direct sensor reading with HC-SR04 reset fix (replaces NewPing)
 float readDistanceWithReset(int trigPin, int echoPin) {
   // Check if echo pin is stuck HIGH from previous failed reading
@@ -242,45 +241,11 @@ float readDistanceWithReset(int trigPin, int echoPin) {
   return distance;
 }
 
-float readDistanceManual(int trigPin, int echoPin) {
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
-
-  unsigned long startTime = micros();
-  while (digitalRead(echoPin) == LOW) {
-    if (micros() - startTime > 50000) {
-      return MAX_RANGE + 10;
-    }
-  }
-
-  startTime = micros();
-  while (digitalRead(echoPin) == HIGH) {
-    if (micros() - startTime > 50000) {
-      return MAX_RANGE + 10;
-    }
-  }
-
-  unsigned long duration = micros() - startTime;
-  float distance = (duration * 0.0343) / 2.0;
-
-  if (distance > MAX_RANGE) {
-    return MAX_RANGE + 10;
-  }
-  return distance;
-}
-
 void updateDistanceSamples(float distance1, float distance2) {
   distance1Samples[sampleIndex] = distance1;
   distance2Samples[sampleIndex] = distance2;
   
   sampleIndex = (sampleIndex + 1) % SAMPLES;
-  
-  if (!samplesInitialized && sampleIndex == 0) {
-    samplesInitialized = true;
-  }
 }
 
 float getAveragedDistance(float samples[]) {
@@ -303,20 +268,33 @@ float getAveragedDistance(float samples[]) {
   return sum / validSamples;
 }
 
-void loop(){
+
+
+
+void loop() {
   unsigned long currentTime = millis();
   
-  // Read sensors using manual method (same as theremin version)
-  float distance1 = readDistanceManual(trigPin1, echoPin1);
-  float distance2 = readDistanceManual(trigPin2, echoPin2);
+  // Read sensors
+  float distance1 = readDistanceWithReset(trigPin1, echoPin1);
+  float distance2 = readDistanceWithReset(trigPin2, echoPin2);
+  
+  updateDistanceSamples(distance1, distance2);
 
-  bool handInRange1 = (distance1 >= MIN_RANGE && distance1 <= MAX_RANGE);
-  bool handInRange2 = (distance2 >= MIN_RANGE && distance2 <= MAX_RANGE);
+  float avgDistance1, avgDistance2;
+  if (samplesInitialized) {
+    avgDistance1 = getAveragedDistance(distance1Samples);
+    avgDistance2 = getAveragedDistance(distance2Samples);
+  } else {
+    avgDistance1 = distance1;
+    avgDistance2 = distance2;
+  }
 
-  bool handsDetectedRaw = handInRange1 || handInRange2;
+  bool inRange1 = (avgDistance1 >= MIN_RANGE && avgDistance1 <= MAX_RANGE);
+  bool inRange2 = (avgDistance2 >= MIN_RANGE && avgDistance2 <= MAX_RANGE);
+  bool handsDetected = inRange1 || inRange2;
 
-    // State machine for mode and effect switching
-  if (handsDetectedRaw) {
+  // State machine for mode and effect switching
+  if (handsDetected) {
     lastHandDetectedTime = currentTime;
     if (currentMode == ATTRACT_MODE) {
       currentMode = INTERACTIVE_MODE;
@@ -350,41 +328,10 @@ void loop(){
     dj_scratch_update(distance1, distance2);
   }
 
-  updateDistanceSamples(distance1, distance2);
-
-  float avgDistance1, avgDistance2;
-  if (samplesInitialized) {
-    avgDistance1 = getAveragedDistance(distance1Samples);
-    avgDistance2 = getAveragedDistance(distance2Samples);
-  } else {
-    avgDistance1 = distance1;
-    avgDistance2 = distance2;
-  }
-
-  bool inRange1 = (avgDistance1 >= MIN_RANGE && avgDistance1 <= MAX_RANGE);
-  bool inRange2 = (avgDistance2 >= MIN_RANGE && avgDistance2 <= MAX_RANGE);
-  bool handsDetected = inRange1 || inRange2;
-
-  if (handsDetected) {
-    if (currentMode == ATTRACT_MODE) {
-      currentMode = INTERACTIVE_MODE;
-    }
-    // Note: lastHandDetectedTime is already updated in the effect rotation logic above
-  } else {
-    if (currentMode == INTERACTIVE_MODE && 
-        (currentTime - lastHandDetectedTime) >= INTERACTIVE_TIMEOUT) {
-      
-      CRGB transitionColor = (lastLeftColor.r + lastLeftColor.g > lastRightColor.r + lastRightColor.g) ? 
-                            lastLeftColor : lastRightColor;
-      calculatePhaseOffset(transitionColor);
-      
-      currentMode = ATTRACT_MODE;
-    }
-  }
-
-  // Effect-specific update already called above - no duplicate needed
+  // Update LEDs
   updateLEDs(avgDistance1, avgDistance2, inRange1, inRange2, currentTime);
 
+  // Send JSON data
   static LightMode lastReportedMode = ATTRACT_MODE;
   static bool lastHandsDetected = false;
   

@@ -49,6 +49,30 @@ void loop() {
 - **Distorted Audio:** Verify power supply stability
 - **Sensor Issues:** Ensure no pin conflicts with Mozzi audio pins (11, 12)
 
+## Alien Sound Effect Configuration (`alien_sound_effect.ino`)
+
+This configuration is specific to the `alien_sound_effect.ino` sketch.
+
+### Sensor Pin Assignments
+
+- **Pitch Control (Left Hand Sensor):**
+  - **Trigger Pin:** 10
+  - **Echo Pin:** 11
+- **Volume Control (Right Hand Sensor):**
+  - **Trigger Pin:** 5
+  - **Echo Pin:** 6
+
+**Note:** Unlike the Theremin sketch, the `alien_sound_effect` does not require re-routing the echo pin, as it uses a different set of libraries and has no conflict on pin 11.
+
+### Mozzi Configuration
+
+Remains the same as the Theremin setup:
+```cpp
+// Configure Mozzi for 2-pin PWM mode
+#include <MozziConfigValues.h>
+#define MOZZI_AUDIO_MODE MOZZI_OUTPUT_2PIN_PWM
+```
+
 ## Version History
 
 - **v1.0:** Initial configuration with pin conflict resolution

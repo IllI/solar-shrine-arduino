@@ -20,7 +20,6 @@ void theremin_disable() {
 void theremin_update(float distance1, float distance2) {
     bool handInRange1 = (distance1 >= MIN_RANGE_THEREMIN && distance1 <= MAX_RANGE_THEREMIN);
     bool handInRange2 = (distance2 >= MIN_RANGE_THEREMIN && distance2 <= MAX_RANGE_THEREMIN);
-
     if (handInRange2) {
         int frequency = map(distance2, MIN_RANGE_THEREMIN, MAX_RANGE_THEREMIN, 1000, 200);
         NewTone(AUDIO_PIN, frequency);

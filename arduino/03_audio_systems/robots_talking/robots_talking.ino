@@ -20,6 +20,7 @@
  - Audio output on pin 9 (Mozzi)
 *********************************************************************************/
 
+#define MOZZI_AUDIO_MODE MOZZI_OUTPUT_2PIN_PWM // Use 2-pin PWM for audio on Pin 12
 #include <MozziGuts.h>
 #include <Oscil.h> 
 #include <RollingAverage.h>
@@ -59,7 +60,7 @@ RollingAverage <int, 12> volumeAverage;   // Even more for smooth volume
 
 // Pin assignments
 const int pitchTrigPin = 10;              // Right hand controls pitch
-const int pitchEchoPin = 11;
+const int pitchEchoPin = 7;                 // MOVED from 11 to avoid Mozzi conflict
 const int volTrigPin = 5;                 // Left hand controls volume  
 const int volEchoPin = 6;
 
@@ -229,4 +230,4 @@ int updateAudio() {
 
 void loop() {
   audioHook();  // Required for Mozzi
-} 
+}
