@@ -312,18 +312,27 @@ static void updateDJLedVisual(float dLeft, float dRight) {
   const CRGB startColor = CRGB(48, 0, 96);    // dark purple
   const CRGB endColor   = CRGB(0, 255, 255);  // neon blue
 
-  // Render
-  for (uint16_t k = 0; k < pathLen; ++k) {
-    uint16_t i = path[k];
-    uint16_t denom = (wavelength == 0) ? 1 : (uint16_t)wavelength;
-    uint8_t x = (uint8_t)((k * 255) / denom);
-    uint8_t s = sin8(x - phase); // 0..255
-    // brightness 0..255 (soft curve)
+  // Optional: true 2D spatial wave using normalized coordinates
+  static bool spatialInit = false;
+  static float ledX[NUM_LEDS];
+  static float ledY[NUM_LEDS];
+  if (!spatialInit) {
+    build_spatial_map(ledX, ledY);
+    spatialInit = true;
+  }
+
+  // Render: wave moves left->right using x, modulated by y for slight vertical phase
+  for (uint16_t idx = 0; idx < NUM_LEDS; ++idx) {
+    float xNorm = ledX[idx];           // 0..1 left->right
+    float yNorm = ledY[idx];           // 0..1 base->tip
+    uint8_t x = (uint8_t)(xNorm * 255.0f);
+    uint8_t y = (uint8_t)(yNorm * 64.0f); // small vertical phase
+    uint8_t s = sin8(x - phase + y);
     uint8_t b = scale8(s, 220);
     CRGB col = blend(startColor, endColor, s);
     uint8_t nb = (b < 16) ? 16 : b;
     col.nscale8_video(nb);
-    leds[i] = col;
+    leds[idx] = col;
   }
 
   FastLED.show();

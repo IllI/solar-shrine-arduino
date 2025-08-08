@@ -22,21 +22,24 @@ If your physical daisy-chain order differs from the defaults, update the lengths
 
 Per hand (summing to 60):
 
-- THUMB: 10
-- INDEX: 12
-- MIDDLE: 14
+- THUMB: 7
+- PALM: 5
+- INDEX: 13
+- MIDDLE: 13
 - RING: 12
-- PINKY: 12
+- PINKY: 10
 
 These values are chosen to roughly match the photographed build and are easy to tweak. Adjust both hands symmetrically or independently.
 
 ## API Overview (led_mapping.h)
 
 - enum HandSide { LEFT_HAND, RIGHT_HAND }
-- enum Finger { THUMB, INDEX, MIDDLE, RING, PINKY }
-- void setFingerColor(HandSide side, Finger finger, const CRGB& color)
+- enum Segment { THUMB, PALM, INDEX, MIDDLE, RING, PINKY }
+- void setSegmentColor(HandSide side, Segment segment, const CRGB& color)
 - void paintHandFlatColor(HandSide side, const CRGB& color)
 - void debug_show_finger_blocks() — paints distinct colors per finger on both hands for verification
+- void build_default_traversal(uint16_t* outIndices, uint16_t& outLen)
+- void build_spatial_map(float* xOut, float* yOut)  // normalized x,y per LED
 
 ## Quick Test
 
