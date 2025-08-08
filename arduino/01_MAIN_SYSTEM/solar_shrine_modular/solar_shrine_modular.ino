@@ -39,6 +39,7 @@
 #include "theremin.h"
 #include "alien.h"
 #include "robots.h"
+#include "led_mapping.h"
 // NewPing removed to avoid timer conflicts with NewTone
 
 // =============================================================================
@@ -78,6 +79,8 @@ EffectType currentEffect = DJ_SCRATCH; // Start with DJ Scratch
 
 const unsigned long INTERACTIVE_TIMEOUT = 10000; // 10s no hands -> back to attract
 const unsigned long EFFECT_SWITCH_TIMEOUT = 5000; // 5s no hands -> rotate effect
+// Temporary: disable effect rotation to focus on DJ visuals
+const bool DISABLE_EFFECT_ROTATION = true;
 
 
 // Mode constants
@@ -279,6 +282,52 @@ void updateLEDs(float avgDistance1, float avgDistance2, bool inRange1, bool inRa
   
   FastLED.show();
 }
+
+// =============================================
+// DJ SCRATCH – sound-wave ripple across both hands
+// Colors strictly blend: dark purple -> neon blue
+// =============================================
+static void updateDJLedVisual(float dLeft, float dRight) {
+  // Map right-hand distance to wave speed (closer = faster)
+  // Use 5..50 cm range
+  uint8_t speed = 60; // default BPM-ish
+  if (dRight >= 5 && dRight <= 50) {
+    speed = (uint8_t)map((int)dRight, 5, 50, 160, 40); // close->fast
+  }
+
+  // Build traversal path once to follow physical LED order
+  static bool pathInit = false;
+  static uint16_t path[NUM_LEDS];
+  static uint16_t pathLen = 0;
+  if (!pathInit) {
+    build_default_traversal(path, pathLen);
+    pathInit = true;
+  }
+
+  // Wave phase 0..255 advances by beat8
+  uint8_t phase = beat8(speed);
+  const uint8_t wavelength = 20; // LEDs per cycle
+
+  // Colors
+  const CRGB startColor = CRGB(48, 0, 96);    // dark purple
+  const CRGB endColor   = CRGB(0, 255, 255);  // neon blue
+
+  // Render
+  for (uint16_t k = 0; k < pathLen; ++k) {
+    uint16_t i = path[k];
+    uint16_t denom = (wavelength == 0) ? 1 : (uint16_t)wavelength;
+    uint8_t x = (uint8_t)((k * 255) / denom);
+    uint8_t s = sin8(x - phase); // 0..255
+    // brightness 0..255 (soft curve)
+    uint8_t b = scale8(s, 220);
+    CRGB col = blend(startColor, endColor, s);
+    uint8_t nb = (b < 16) ? 16 : b;
+    col.nscale8_video(nb);
+    leds[i] = col;
+  }
+
+  FastLED.show();
+}
 // Direct sensor reading with HC-SR04 reset fix (replaces NewPing)
 float readDistanceWithReset(int trigPin, int echoPin) {
   // Check if echo pin is stuck HIGH from previous failed reading
@@ -391,7 +440,7 @@ void loop() {
     if (currentMode == INTERACTIVE_MODE && sinceLastHand > INTERACTIVE_TIMEOUT) {
       currentMode = ATTRACT_MODE; // Back to attract after 10s
       lastEffectRotationTime = currentTime; // reset rotation cadence
-    } else if (sinceLastHand > EFFECT_SWITCH_TIMEOUT) {
+    } else if (!DISABLE_EFFECT_ROTATION && sinceLastHand > EFFECT_SWITCH_TIMEOUT) {
       // Rotate effects every 5s of no hands
       if (currentTime - lastEffectRotationTime >= EFFECT_SWITCH_TIMEOUT) {
         // Keep hardware silent while rotating through effects with no hands
@@ -408,6 +457,10 @@ void loop() {
   // Update the current effect only if hands detected; otherwise ensure silence
   if (handsDetected) {
     effect_update(currentEffect, distance1, distance2);
+    // DJ LED visual
+    if (currentEffect == DJ_SCRATCH && currentMode == INTERACTIVE_MODE) {
+      updateDJLedVisual(distance1, distance2);
+    }
   } else {
     audio_all_off();
     // On falling edge, ensure current effect is fully disabled as well
@@ -419,8 +472,10 @@ void loop() {
   // Update hand edge tracker
   prevHandsDetected = handsDetected;
 
-  // Update LEDs
-  updateLEDs(avgDistance1, avgDistance2, inRange1, inRange2, currentTime);
+  // Update LEDs: if DJ interactive, the DJ visual already drew the frame
+  if (!(currentEffect == DJ_SCRATCH && currentMode == INTERACTIVE_MODE)) {
+    updateLEDs(avgDistance1, avgDistance2, inRange1, inRange2, currentTime);
+  }
 
   // Send JSON data
   static LightMode lastReportedMode = ATTRACT_MODE;
