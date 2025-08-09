@@ -18,7 +18,7 @@ The layout is based on this photo (stored alongside the sketch):
 
 If your physical daisy-chain order differs from the defaults, update the lengths in `led_mapping.h` to match your soldered segments.
 
-## Default Finger Block Lengths
+## Default Segment Lengths (per hand)
 
 Per hand (summing to 60):
 
@@ -30,6 +30,11 @@ Per hand (summing to 60):
 - PINKY: 10
 
 These values are chosen to roughly match the photographed build and are easy to tweak. Adjust both hands symmetrically or independently.
+
+## Hand Column Order
+
+- Left hand columns (outer→inner): PINKY(0), RING(1), MIDDLE(2), INDEX(3), PALM(4), THUMB(5)
+- Right hand columns (inner→outer): THUMB(0), PALM(1), INDEX(2), MIDDLE(3), RING(4), PINKY(5)
 
 ## API Overview (led_mapping.h)
 
@@ -45,8 +50,8 @@ These values are chosen to roughly match the photographed build and are easy to 
 - uint16_t left_seq_to_index(uint8_t seq1Based), right_seq_to_index(uint8_t seq1Based)
 
 Direction reference (from wrist toward fingertips):
-- Left hand: THUMB BASE→TIP (bottom→top), PALM BASE→TIP, INDEX TIP→BASE, MIDDLE BASE→TIP, RING TIP→BASE, PINKY TIP→BASE.
-- Right hand: THUMB is TIP→BASE (top→bottom), PALM BASE→TIP, INDEX TIP→BASE, MIDDLE BASE→TIP, RING TIP→BASE, PINKY BASE→TIP.
+- Left hand: THUMB BASE→TIP (up), PALM BASE→TIP (up), INDEX BASE→TIP (up), MIDDLE TIP→BASE (down), RING BASE→TIP (up), PINKY TIP→BASE (down).
+- Right hand: THUMB TIP→BASE (down), PALM BASE→TIP (up), INDEX TIP→BASE (down), MIDDLE BASE→TIP (up), RING TIP→BASE (down), PINKY BASE→TIP (up).
 ### Left-hand sequential index labels
 
 Using lengths: PINKY 10, RING 12, MIDDLE 13, INDEX 13, PALM 5, THUMB 7.
@@ -80,6 +85,28 @@ uint16_t i3 = left_seq_to_index(38);
 ```
 
 This mapping is consistent with the left-hand run-lengths and directions listed above.
+
+## Alien Effect (2D Circle) Anchors and Growth
+
+- Left hand anchor: sequential LED 31 (middle finger). The circle is computed in discrete grid space centered at seq 31 and grows by adding grid cells whose integer distance to the center ≤ r (r increases as the hand approaches).
+- Right hand anchor: sequential LED 32 (middle of hand). Same discrete growth rule as left.
+- At small radius (e.g., left distance ≈ 42cm), the expected lit indices on the left are exactly:
+  - Ring: 12–15, Middle: 30–34, Index: 38–41.
+
+### Example: Light a small circle explicitly (left)
+
+```
+for (uint8_t s : {12,13,14,15,30,31,32,33,34,38,39,40,41}) {
+  uint16_t idx = left_seq_to_index(s);
+  if (idx != 0xFFFF) leds[idx] = CRGB::White;
+}
+FastLED.show();
+```
+
+## Troubleshooting
+
+- If one strand is inverted, update the per-segment direction in `segment_direction()`.
+- If a boundary is off-by-one, adjust the cumulative lengths shown in this README and the corresponding arrays in `led_mapping.h`.
 
 
 ## Quick Test

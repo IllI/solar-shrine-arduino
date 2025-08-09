@@ -10,6 +10,7 @@ static int baseFrequency = 300;
 static float formantPhase = 0.0f;
 static float formantRate = 1.5f;  // Hz
 static unsigned long lastMs = 0;
+static uint8_t lastLevel = 0; // envelope for LED visuals
 
 // Map helpers
 static const int MIN_CM = 5;
@@ -60,4 +61,10 @@ void robots_update(float distanceLeft, float distanceRight) {
   int detune = (int)(baseFrequency * 0.06f); // 6% detune
   int voicedFreq = baseFrequency + (int)(detune * am);
   NewTone(AUDIO_PIN, voicedFreq);
+
+  // Simple envelope from AM depth for LED intensity
+  uint8_t lvl = (uint8_t)(am * 255.0f);
+  if (lvl > lastLevel) lastLevel = lvl; else lastLevel = (lastLevel * 7) / 8;
 }
+
+uint8_t robots_get_level() { return lastLevel; }

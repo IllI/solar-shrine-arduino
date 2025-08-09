@@ -75,14 +75,14 @@ enum EffectType {
   MINITHEREMIN
 };
 
-EffectType currentEffect = DJ_SCRATCH; // Start with DJ Scratch
+EffectType currentEffect = ROBOTS; // Start with Robots for isolated testing
 
 const unsigned long INTERACTIVE_TIMEOUT = 10000; // 10s no hands -> back to attract
 const unsigned long EFFECT_SWITCH_TIMEOUT = 5000; // 5s no hands -> rotate effect
 // Temporary: disable effect rotation to focus on DJ visuals
 const bool DISABLE_EFFECT_ROTATION = true;
-// Temporary: force ALIEN-only testing (no effect rotation, start in ALIEN)
-const bool TEST_ALIEN_ONLY = true;
+// Temporary test flags
+const bool TEST_ALIEN_ONLY = false;
 
 
 // Mode constants
@@ -145,9 +145,7 @@ void setup(){
   unsigned long now = millis();
   lastHandDetectedTime = now;
   lastEffectRotationTime = now;
-  if (TEST_ALIEN_ONLY) {
-    currentEffect = ALIEN;
-  }
+  if (TEST_ALIEN_ONLY) currentEffect = ALIEN;
 }
 
 CRGB getInteractiveColor(float distance) {
@@ -612,6 +610,36 @@ void loop() {
       updateDJLedVisual(distance1, distance2);
     } else if (currentEffect == ALIEN && currentMode == INTERACTIVE_MODE) {
       updateAlienLedVisual(distance1, distance2);
+    } else if (currentEffect == ROBOTS && currentMode == INTERACTIVE_MODE) {
+      // Simple per-column rain head tied to envelope (first attempt, smoother look)
+      static bool spatialInit = false;
+      static float ledX[NUM_LEDS];
+      static float ledY[NUM_LEDS];
+      if (!spatialInit) { build_spatial_map(ledX, ledY); spatialInit = true; }
+
+      // Decay frame
+      for (int i = 0; i < NUM_LEDS; ++i) leds[i].fadeToBlackBy(64);
+
+      uint8_t lvl = robots_get_level(); // 0..255
+      CRGB gold = CRGB(255, 215, 0);
+      // Map to rows
+      uint8_t rowsL = hand_num_rows(LEFT_HAND);
+      uint8_t rowsR = hand_num_rows(RIGHT_HAND);
+      uint8_t hL = map(lvl, 0, 255, 0, rowsL - 1);
+      uint8_t hR = map(lvl, 0, 255, 0, rowsR - 1);
+
+      // Left hand outer→inner
+      for (uint8_t col = 0; col < hand_num_columns(); ++col) {
+        uint16_t idx = hand_xy_to_index(LEFT_HAND, col, hL);
+        if (idx != 0xFFFF) { uint8_t b = (lvl < 32) ? 32 : lvl; CRGB c = gold; c.nscale8_video(b); leds[idx] = c; }
+      }
+      // Right hand inner→outer
+      for (uint8_t col = 0; col < hand_num_columns(); ++col) {
+        uint16_t idx = hand_xy_to_index(RIGHT_HAND, col, hR);
+        if (idx != 0xFFFF) { uint8_t b = (lvl < 32) ? 32 : lvl; CRGB c = gold; c.nscale8_video(b); leds[idx] = c; }
+      }
+
+      FastLED.show();
     }
   } else {
     audio_all_off();
