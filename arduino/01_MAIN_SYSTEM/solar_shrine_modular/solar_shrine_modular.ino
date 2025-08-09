@@ -75,14 +75,14 @@ enum EffectType {
   MINITHEREMIN
 };
 
-EffectType currentEffect = ROBOTS; // Start with Robots for isolated testing
+EffectType currentEffect = MINITHEREMIN; // Start with Theremin to test fireball visual
 
 const unsigned long INTERACTIVE_TIMEOUT = 10000; // 10s no hands -> back to attract
 const unsigned long EFFECT_SWITCH_TIMEOUT = 5000; // 5s no hands -> rotate effect
 // Temporary: disable effect rotation to focus on DJ visuals
 const bool DISABLE_EFFECT_ROTATION = true;
 // Temporary test flags
-const bool TEST_ALIEN_ONLY = true;
+const bool TEST_ALIEN_ONLY = false;
 
 
 // Mode constants
@@ -476,6 +476,108 @@ static void updateAlienLedVisual(float dLeft, float dRight) {
 
   FastLED.show();
 }
+
+// =============================================
+// MINITHEREMIN – fireball cloud sweeping left pinky -> right pinky
+// Controls:
+//  - Right hand distance: speed (closer = faster)
+//  - Left hand distance: size and heat/brightness (closer = larger, hotter)
+// =============================================
+static void updateThereminLedVisual(float dLeft, float dRight) {
+  // Build spatial map once
+  static bool spatialInit = false;
+  static float ledX[NUM_LEDS];
+  static float ledY[NUM_LEDS];
+  static float minX = 0.0f, maxX = 1.0f;
+  if (!spatialInit) {
+    build_spatial_map(ledX, ledY);
+    minX = 1.0f; maxX = 0.0f;
+    for (uint16_t i = 0; i < NUM_LEDS; ++i) {
+      if (ledX[i] < minX) minX = ledX[i];
+      if (ledX[i] > maxX) maxX = ledX[i];
+    }
+    // Guard against degenerate range
+    if (maxX - minX < 0.01f) { minX = 0.0f; maxX = 1.0f; }
+    spatialInit = true;
+  }
+
+  // Presence flags
+  auto inRange = [](float cm) -> bool { return cm >= 5.0f && cm <= 50.0f; };
+  bool leftPresent = inRange(dLeft);
+  bool rightPresent = inRange(dRight);
+
+  // Map right-hand distance to speed (cycles per second)
+  // Closer -> faster woosh
+  float speedHz = 0.6f; // default slow drift
+  if (rightPresent) {
+    float t = (dRight - 5.0f) / 45.0f; if (t < 0) t = 0; if (t > 1) t = 1;
+    // 5cm => 1.8 Hz, 50cm => 0.3 Hz
+    speedHz = 0.3f + (1.0f - t) * 1.5f;
+  }
+
+  // Map left-hand distance to size and heat
+  float sigma = 0.10f; // gaussian-ish half-width in x-space
+  uint8_t heatBoost = 180; // max extra whiteness
+  uint8_t brightnessBase = 140; // base brightness
+  if (leftPresent) {
+    float t = (dLeft - 5.0f) / 45.0f; if (t < 0) t = 0; if (t > 1) t = 1;
+    // 5cm => large radius, hot/bright; 50cm => tight, dimmer
+    sigma = 0.05f + (1.0f - t) * 0.13f; // 0.05 .. 0.18
+    heatBoost = (uint8_t)(120 + (1.0f - t) * 135.0f); // 120 .. 255
+    brightnessBase = (uint8_t)(110 + (1.0f - t) * 145.0f); // 110 .. 255
+  } else if (rightPresent) {
+    // Solo right-hand control: modest size/heat
+    float t = (dRight - 5.0f) / 45.0f; if (t < 0) t = 0; if (t > 1) t = 1;
+    sigma = 0.06f + (1.0f - t) * 0.10f;
+    heatBoost = (uint8_t)(90 + (1.0f - t) * 110.0f);
+    brightnessBase = (uint8_t)(100 + (1.0f - t) * 110.0f);
+  }
+
+  // Time-based center position sweeping strictly left->right and wrapping
+  static unsigned long startMillis = millis();
+  float seconds = (millis() - startMillis) / 1000.0f;
+  float range = (maxX - minX);
+  float pos01 = seconds * speedHz;
+  // Cheap wrap without fmodf to avoid libm heavy calls on AVR
+  pos01 = pos01 - (unsigned long)pos01; // keep fractional part only (0..1)
+  float centerX = minX + pos01 * range;
+
+  // Fixed RGB endpoints (orange -> yellow) to avoid any HSV wrap toward green
+  const CRGB rgbOrange = CRGB(255, 96, 0);
+  const CRGB rgbYellow = CRGB(255, 220, 0);
+
+  // Clear frame to avoid leftover colors (keep spectrum strictly in our palette)
+  fill_solid(leds, NUM_LEDS, CRGB::Black);
+
+  // Render additive fireball
+  for (uint16_t i = 0; i < NUM_LEDS; ++i) {
+    float x = ledX[i];
+    float y = ledY[i];
+    float dx = x - centerX;
+    // Normalize distance by sigma
+    float nd = fabsf(dx) / sigma;
+    // Soft bell curve approximation (no exp): 1 / (1 + a*d^2)
+    float atten = 1.0f / (1.0f + 1.8f * nd * nd);
+    if (atten < 0.02f) continue; // cheap cutoff
+
+    // No vertical shimmer to ensure perceived motion is horizontal only
+    float a = atten;
+    if (a > 1.0f) a = 1.0f;
+
+    // Brightness scaling from left-hand control
+    uint8_t b = (uint8_t)constrain((int)(brightnessBase * a), 0, 255);
+
+    // Base fire color between orange and yellow based on attenuation (hotter near center)
+    uint8_t mix = (uint8_t)constrain((int)(a * 255.0f), 0, 255);
+    CRGB col = blend(rgbOrange, rgbYellow, mix);
+    // Apply brightness on blended RGB to keep palette bounds
+    col.nscale8_video(b);
+    // Direct assignment to keep color bounds; no additive blending
+    leds[i] = col;
+  }
+
+  FastLED.show();
+}
 // Direct sensor reading with HC-SR04 reset fix (replaces NewPing)
 float readDistanceWithReset(int trigPin, int echoPin) {
   // Check if echo pin is stuck HIGH from previous failed reading
@@ -626,6 +728,8 @@ void loop() {
       updateAlienLedVisual(distance1, distance2);
       // Step Mozzi for alien effect
       alien_audio_hook();
+    } else if (currentEffect == MINITHEREMIN && currentMode == INTERACTIVE_MODE) {
+      updateThereminLedVisual(distance1, distance2);
     } else if (currentEffect == ROBOTS && currentMode == INTERACTIVE_MODE) {
       // Simple per-column rain head tied to envelope (first attempt, smoother look)
       static bool spatialInit = false;
@@ -669,7 +773,7 @@ void loop() {
   prevHandsDetected = handsDetected;
 
   // Update LEDs: if DJ interactive, the DJ visual already drew the frame
-  if (!((currentEffect == DJ_SCRATCH || currentEffect == ALIEN) && currentMode == INTERACTIVE_MODE)) {
+  if (!((currentEffect == DJ_SCRATCH || currentEffect == ALIEN || currentEffect == MINITHEREMIN) && currentMode == INTERACTIVE_MODE)) {
     updateLEDs(avgDistance1, avgDistance2, inRange1, inRange2, currentTime);
   }
 
