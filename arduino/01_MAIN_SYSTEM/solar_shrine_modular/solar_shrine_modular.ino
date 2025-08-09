@@ -48,14 +48,14 @@
 
 // Pin assignments for HC-SR04 sensors
 const int trigPin1 = 10; // Left sensor
-const int echoPin1 = 11;
+const int echoPin1 = 11; // Keep shield wiring: left echo on 11
 const int trigPin2 = 5;  // Right sensor
 const int echoPin2 = 6; // Corrected from 12 to match hardware wiring and avoid audio conflict
 // Distance-based detection constants (in cm)
 const float MIN_RANGE = 5.0;                  // MinimTheremin effect initializedum detection range in cm
 const float MAX_RANGE = 50.0;                 // Maximum detection range in cm
 
-const unsigned long SENSOR_TIMEOUT = 30000;   // Sensor timeout in microseconds
+const unsigned long SENSOR_TIMEOUT = 12000;   // Shorter timeout to avoid Mozzi underruns
 
 // LED strip configuration
 #define LED_PIN 3
@@ -551,6 +551,20 @@ void loop() {
   // Read sensors
   float distance1 = readDistanceWithReset(trigPin1, echoPin1);
   float distance2 = readDistanceWithReset(trigPin2, echoPin2);
+  // Sanity: if left is stuck exactly at 60 repeatedly, try a quick echo line reset (same fix as readDistanceWithReset)
+  static float prevDebugLeft = -999;
+  static uint8_t stuckCount = 0;
+  if ((int)distance1 == 60 && (int)prevDebugLeft == 60) {
+    stuckCount++;
+    if (stuckCount >= 2) {
+      // Reset echo line pulse if sensor is latched
+      pinMode(echoPin1, OUTPUT); digitalWrite(echoPin1, LOW); delayMicroseconds(10); pinMode(echoPin1, INPUT);
+      stuckCount = 0;
+    }
+  } else {
+    stuckCount = 0;
+  }
+  prevDebugLeft = distance1;
   
   updateDistanceSamples(distance1, distance2);
 
@@ -610,6 +624,8 @@ void loop() {
       updateDJLedVisual(distance1, distance2);
     } else if (currentEffect == ALIEN && currentMode == INTERACTIVE_MODE) {
       updateAlienLedVisual(distance1, distance2);
+      // Step Mozzi for alien effect
+      alien_audio_hook();
     } else if (currentEffect == ROBOTS && currentMode == INTERACTIVE_MODE) {
       // Simple per-column rain head tied to envelope (first attempt, smoother look)
       static bool spatialInit = false;
@@ -685,5 +701,10 @@ void loop() {
     lastHandsDetected = handsDetected;
   }
 
-  delay(20);
+  // Always step Mozzi when ALIEN is selected to keep audio smooth
+  if (currentEffect == ALIEN) {
+    alien_audio_hook();
+  } else {
+    delay(20);
+  }
 }
