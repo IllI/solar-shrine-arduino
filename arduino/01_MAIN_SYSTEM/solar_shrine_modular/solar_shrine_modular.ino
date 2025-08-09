@@ -81,6 +81,8 @@ const unsigned long INTERACTIVE_TIMEOUT = 10000; // 10s no hands -> back to attr
 const unsigned long EFFECT_SWITCH_TIMEOUT = 5000; // 5s no hands -> rotate effect
 // Temporary: disable effect rotation to focus on DJ visuals
 const bool DISABLE_EFFECT_ROTATION = true;
+// Temporary: force ALIEN-only testing (no effect rotation, start in ALIEN)
+const bool TEST_ALIEN_ONLY = true;
 
 
 // Mode constants
@@ -143,6 +145,9 @@ void setup(){
   unsigned long now = millis();
   lastHandDetectedTime = now;
   lastEffectRotationTime = now;
+  if (TEST_ALIEN_ONLY) {
+    currentEffect = ALIEN;
+  }
 }
 
 CRGB getInteractiveColor(float distance) {
@@ -337,6 +342,121 @@ static void updateDJLedVisual(float dLeft, float dRight) {
 
   FastLED.show();
 }
+
+// =============================================
+// ALIEN – white orb in the center of each hand that grows with proximity
+// =============================================
+static void updateAlienLedVisual(float dLeft, float dRight) {
+  // Build spatial map once
+  static bool spatialInit = false;
+  static float ledX[NUM_LEDS];
+  static float ledY[NUM_LEDS];
+  if (!spatialInit) {
+    build_spatial_map(ledX, ledY);
+    spatialInit = true;
+  }
+
+  // Discrete grid sizes
+  const uint8_t cols = hand_num_columns();
+  const uint8_t rowsL = hand_num_rows(LEFT_HAND);
+  const uint8_t rowsR = hand_num_rows(RIGHT_HAND);
+
+  // LEFT HAND: anchor center to sequential LED 31 exactly
+  auto leftSeqToColRow = [&](uint8_t seq, uint8_t &col, uint8_t &row){
+    // Left order and cumulative run lengths
+    Segment order[SEGMENT_COUNT] = { PINKY, RING, MIDDLE, INDEX, PALM, THUMB };
+    uint8_t cum[SEGMENT_COUNT]   = { 10, 22, 35, 48, 53, 60 };
+    uint8_t segIdx = 0; while (seq > cum[segIdx]) segIdx++;
+    col = segIdx; // column index in left order
+    uint8_t prevCum = (segIdx == 0) ? 0 : cum[segIdx - 1];
+    uint8_t offset = (uint8_t)(seq - prevCum - 1); // 0-based into segment by sequence progression
+    Segment seg = order[segIdx];
+    uint8_t len = segmentLength(LEFT_HAND, seg);
+    FingerDirection dir = segment_direction(LEFT_HAND, seg);
+    // Normalize row from tip (0 at tip increasing toward base) so circle math aligns with your index labels
+    if (dir == TIP_TO_BASE) row = offset; else row = (uint8_t)(len - 1 - offset);
+  };
+
+  uint8_t col0L, row0L; leftSeqToColRow(31, col0L, row0L);
+
+  // RIGHT HAND: keep previous center near INDEX mid
+  uint8_t rightCenterCol = 2; // INDEX
+  uint8_t rightCenterRow = (rowsR / 2) + 1; // bring right-hand circle slightly down
+
+  // Convert selected grid cells to normalized x,y by averaging a small neighborhood
+  auto gridCellToXY = [&](HandSide side, uint8_t col, uint8_t row, float& outX, float& outY) {
+    uint16_t idx = hand_xy_to_index(side, col, row);
+    if (idx == 0xFFFF) { outX = 0.5f; outY = 0.5f; return; }
+    outX = ledX[idx]; outY = ledY[idx];
+  };
+
+  float cxL, cyL, cxR, cyR;
+  gridCellToXY(LEFT_HAND, col0L, row0L, cxL, cyL);
+  gridCellToXY(RIGHT_HAND, rightCenterCol, rightCenterRow, cxR, cyR);
+
+  // Map distance 5..50 cm → radius 0.05..0.24 (closer = larger)
+  auto mapRadius = [](float dCm) -> float {
+    if (dCm <= 0) return 0.0f;
+    float t = (dCm - 5.0f) / 45.0f; // 0..1
+    if (t < 0) t = 0; if (t > 1) t = 1;
+    float rMin = 0.05f, rMax = 0.24f;
+    return rMin + (1.0f - t) * (rMax - rMin);
+  };
+
+  // Grid radius for left based on distance (integer, rows)
+  auto mapRadiusGrid = [&](float dCm, uint8_t maxRows) -> uint8_t {
+    if (dCm <= 0) return 0;
+    float t = (dCm - 5.0f) / 45.0f; if (t < 0) t = 0; if (t > 1) t = 1;
+    float r = (1.0f - t) * (float)maxRows * 0.9f; // up to ~90% of rows
+    if (r < 1.0f) r = 1.0f;
+    if (r > (float)maxRows) r = (float)maxRows;
+    return (uint8_t)(r + 0.5f);
+  };
+
+  const uint8_t rL_grid = mapRadiusGrid(dLeft, rowsL);
+  const float rR = mapRadius(dRight);
+
+  // Draw black base
+  fill_solid(leds, NUM_LEDS, CRGB::Black);
+
+  // Accumulate intensities from both hands, clamp to 255
+  for (uint16_t i = 0; i < NUM_LEDS; ++i) {
+    float x = ledX[i];
+    float y = ledY[i];
+    // Left hand discrete circle using sequential indexing
+    float iL = 0.0f;
+    {
+      // Determine if this physical index belongs to left hand
+      if (i < NUM_LEDS/2) {
+        // Find its sequential label approximately by column/row proximity
+        // Iterate s and test circle in grid space (cheap due to small 60)
+        for (uint8_t s = 1; s <= 60; ++s) {
+          uint8_t c, r; leftSeqToColRow(s, c, r);
+          int dc = (int)c - (int)col0L;
+          int dr = (int)r - (int)row0L;
+          if ((dc*dc + dr*dr) <= (int)rL_grid*(int)rL_grid) {
+            uint16_t idx = left_seq_to_index(s);
+            if (idx == i) { iL = 1.0f; break; }
+          }
+        }
+      }
+    }
+
+    float iR = 0.0f;
+    float dRightN = sqrtf((x - cxR) * (x - cxR) + (y - cyR) * (y - cyR));
+    if (rR > 0.0f && dRightN < rR) {
+      float t = 1.0f - (dRightN / rR);
+      iR = t * t;
+    }
+
+    uint16_t val = (uint16_t)((iL + iR) * 255.0f);
+    if (val > 255) val = 255;
+    // Small threshold to avoid lighting thumb/pinky when radius is tiny
+    leds[i] = (val > 6) ? CRGB(val, val, val) : CRGB::Black;
+  }
+
+  FastLED.show();
+}
 // Direct sensor reading with HC-SR04 reset fix (replaces NewPing)
 float readDistanceWithReset(int trigPin, int echoPin) {
   // Check if echo pin is stuck HIGH from previous failed reading
@@ -469,6 +589,8 @@ void loop() {
     // DJ LED visual
     if (currentEffect == DJ_SCRATCH && currentMode == INTERACTIVE_MODE) {
       updateDJLedVisual(distance1, distance2);
+    } else if (currentEffect == ALIEN && currentMode == INTERACTIVE_MODE) {
+      updateAlienLedVisual(distance1, distance2);
     }
   } else {
     audio_all_off();
@@ -482,7 +604,7 @@ void loop() {
   prevHandsDetected = handsDetected;
 
   // Update LEDs: if DJ interactive, the DJ visual already drew the frame
-  if (!(currentEffect == DJ_SCRATCH && currentMode == INTERACTIVE_MODE)) {
+  if (!((currentEffect == DJ_SCRATCH || currentEffect == ALIEN) && currentMode == INTERACTIVE_MODE)) {
     updateLEDs(avgDistance1, avgDistance2, inRange1, inRange2, currentTime);
   }
 

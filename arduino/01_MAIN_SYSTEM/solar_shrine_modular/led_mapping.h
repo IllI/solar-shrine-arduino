@@ -92,7 +92,9 @@ inline void appendSegmentToPath(HandSide side, Segment seg, FingerDirection dir,
 // You can tweak this order if your solder path differs.
 inline void build_default_traversal(uint16_t* outIndices, uint16_t& outLen) {
   outLen = 0;
-  // Left hand sequence following the alternating directions:
+  // Left hand serpentine (reverted to previous closer version):
+  // Start: top of PINKY -> down to base; loop to bottom of RING -> up; loop to top of MIDDLE -> down;
+  // then loop to bottom of INDEX -> up; then PALM up; then THUMB up.
   appendSegmentToPath(LEFT_HAND, PINKY,  TIP_TO_BASE, outIndices, outLen); // pinky down
   appendSegmentToPath(LEFT_HAND, RING,   BASE_TO_TIP, outIndices, outLen); // ring up
   appendSegmentToPath(LEFT_HAND, MIDDLE, TIP_TO_BASE, outIndices, outLen); // middle down
@@ -119,45 +121,154 @@ inline void build_default_traversal(uint16_t* outIndices, uint16_t& outLen) {
 // 2D spatial mapping (x,y in 0..1)
 // ===============================
 inline void build_spatial_map(float* xOut, float* yOut) {
-  // Horizontal positions for segments (0..0.49 left, 0.51..1 right)
-  const float leftStart = 0.00f, leftEnd = 0.49f;
-  const float rightStart = 0.51f, rightEnd = 1.00f;
-  const float leftStep = (leftEnd - leftStart) / (SEGMENT_COUNT - 1);
-  const float rightStep = (rightEnd - rightStart) / (SEGMENT_COUNT - 1);
+  // Horizontal positions per segment. Tunable constants to correct real-world spacing.
+  // Keys are Segment enum order: { THUMB, PALM, INDEX, MIDDLE, RING, PINKY }
+  // Left-hand Xs roughly match photo: thumb near center, pinky outer-left.
+  static const float LEFT_SEGMENT_X[SEGMENT_COUNT]  = { 0.46f, 0.41f, 0.34f, 0.28f, 0.20f, 0.12f };
+  // Right-hand Xs symmetric; keep as-is (user reported correct behavior)
+  static const float RIGHT_SEGMENT_X[SEGMENT_COUNT] = { 0.54f, 0.59f, 0.66f, 0.72f, 0.80f, 0.88f };
+  // Revert vertical offsets to zero (use trims in visual if needed)
+  static const float LEFT_SEGMENT_Y_OFFSET[SEGMENT_COUNT]  = { 0.00f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f };
+  static const float RIGHT_SEGMENT_Y_OFFSET[SEGMENT_COUNT] = { 0.00f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f };
+
+  auto clamp01 = [](float v) -> float { if (v < 0.0f) return 0.0f; if (v > 1.0f) return 1.0f; return v; };
 
   // Left order from outer to inner: PINKY, RING, MIDDLE, INDEX, PALM, THUMB
   Segment leftOrder[SEGMENT_COUNT]  = { PINKY, RING, MIDDLE, INDEX, PALM, THUMB };
   // Right order from inner to outer: THUMB, PALM, INDEX, MIDDLE, RING, PINKY
   Segment rightOrder[SEGMENT_COUNT] = { THUMB, PALM, INDEX, MIDDLE, RING, PINKY };
 
-  // Directions per left segment (TIP->BASE means y from 1..0)
-  FingerDirection leftDir[SEGMENT_COUNT]  = { TIP_TO_BASE, BASE_TO_TIP, TIP_TO_BASE, BASE_TO_TIP, BASE_TO_TIP, BASE_TO_TIP };
-  FingerDirection rightDir[SEGMENT_COUNT] = { BASE_TO_TIP, BASE_TO_TIP, TIP_TO_BASE, BASE_TO_TIP, TIP_TO_BASE, BASE_TO_TIP };
+  // Directions per left segment (match documented index ranges):
+  // THUMB up, PALM up, INDEX up, MIDDLE down, RING up, PINKY down
+  FingerDirection leftDir[SEGMENT_COUNT]  = { BASE_TO_TIP, BASE_TO_TIP, BASE_TO_TIP, TIP_TO_BASE, BASE_TO_TIP, TIP_TO_BASE };
+  FingerDirection rightDir[SEGMENT_COUNT] = { TIP_TO_BASE, BASE_TO_TIP, TIP_TO_BASE, BASE_TO_TIP, TIP_TO_BASE, BASE_TO_TIP };
 
   // Fill left hand
   for (uint8_t s = 0; s < SEGMENT_COUNT; ++s) {
     Segment seg = leftOrder[s];
-    float x = leftStart + s * leftStep;
+    float x = LEFT_SEGMENT_X[(uint8_t)seg];
     uint16_t start = segmentStartIndex(LEFT_HAND, seg);
     uint8_t len = segmentLength(LEFT_HAND, seg);
     for (uint8_t i = 0; i < len; ++i) {
       uint8_t pos = (leftDir[s] == BASE_TO_TIP) ? i : (len - 1 - i);
       xOut[start + i] = x;
-      yOut[start + i] = (float)pos / (float)(len - 1);
+      float y = (float)pos / (float)(len - 1);
+      y += LEFT_SEGMENT_Y_OFFSET[(uint8_t)seg];
+      yOut[start + i] = clamp01(y);
     }
   }
 
   // Fill right hand
   for (uint8_t s = 0; s < SEGMENT_COUNT; ++s) {
     Segment seg = rightOrder[s];
-    float x = rightStart + s * rightStep;
+    float x = RIGHT_SEGMENT_X[(uint8_t)seg];
     uint16_t start = segmentStartIndex(RIGHT_HAND, seg);
     uint8_t len = segmentLength(RIGHT_HAND, seg);
     for (uint8_t i = 0; i < len; ++i) {
       uint8_t pos = (rightDir[s] == BASE_TO_TIP) ? i : (len - 1 - i);
       xOut[start + i] = x;
-      yOut[start + i] = (float)pos / (float)(len - 1);
+      float y = (float)pos / (float)(len - 1);
+      y += RIGHT_SEGMENT_Y_OFFSET[(uint8_t)seg];
+      yOut[start + i] = clamp01(y);
     }
+  }
+}
+
+// ===============================
+// Discrete grid mapping per hand (columns = segments, rows = max segment length)
+// ===============================
+
+inline uint8_t hand_num_columns() { return SEGMENT_COUNT; }
+
+inline uint8_t hand_num_rows(HandSide side) {
+  const uint8_t* lengths = segmentLengths(side);
+  uint8_t maxLen = 0;
+  for (uint8_t s = 0; s < SEGMENT_COUNT; ++s) if (lengths[s] > maxLen) maxLen = lengths[s];
+  return maxLen; // rows measured from 0 (tip) to maxLen-1 (base)
+}
+
+inline Segment column_to_segment(HandSide side, uint8_t col) {
+  Segment leftOrder[SEGMENT_COUNT]  = { PINKY, RING, MIDDLE, INDEX, PALM, THUMB };
+  Segment rightOrder[SEGMENT_COUNT] = { THUMB, PALM, INDEX, MIDDLE, RING, PINKY };
+  return (side == LEFT_HAND) ? leftOrder[col] : rightOrder[col];
+}
+
+inline FingerDirection segment_direction(HandSide side, Segment seg) {
+  // Must match the authoritative left-hand directions used elsewhere:
+  // THUMB up, PALM up, INDEX up, MIDDLE down, RING up, PINKY down
+  FingerDirection leftDir[SEGMENT_COUNT]  = { BASE_TO_TIP, BASE_TO_TIP, BASE_TO_TIP, TIP_TO_BASE, BASE_TO_TIP, TIP_TO_BASE };
+  FingerDirection rightDir[SEGMENT_COUNT] = { BASE_TO_TIP, BASE_TO_TIP, TIP_TO_BASE, BASE_TO_TIP, TIP_TO_BASE, BASE_TO_TIP };
+  return (side == LEFT_HAND) ? leftDir[(uint8_t)seg] : rightDir[(uint8_t)seg];
+}
+
+// Map grid (col,row) -> LED index; returns 0xFFFF if out-of-bounds for that segment
+inline uint16_t hand_xy_to_index(HandSide side, uint8_t col, uint8_t row) {
+  Segment seg = column_to_segment(side, col);
+  uint8_t len = segmentLength(side, seg);
+  if (row >= len) return 0xFFFF;
+  uint16_t start = segmentStartIndex(side, seg);
+  FingerDirection dir = segment_direction(side, seg);
+  if (dir == BASE_TO_TIP) {
+    return start + row; // row 0 is BASE in this orientation
+  } else {
+    // TIP_TO_BASE: row 0 should be TIP
+    return start + (len - 1 - row);
+  }
+}
+
+// ===============================
+// Sequential index mapping helpers (1-based within a hand)
+// ===============================
+
+// Left hand order and cumulative lengths for 1..60 indexing
+inline uint16_t left_seq_to_index(uint8_t seq1Based) {
+  if (seq1Based < 1 || seq1Based > 60) return 0xFFFF;
+  // Segment order: PINKY(10), RING(12), MIDDLE(13), INDEX(13), PALM(5), THUMB(7)
+  const Segment order[SEGMENT_COUNT] = { PINKY, RING, MIDDLE, INDEX, PALM, THUMB };
+  const uint8_t cum[SEGMENT_COUNT]   = { 10, 22, 35, 48, 53, 60 };
+  uint8_t segIdx = 0;
+  while (seq1Based > cum[segIdx]) segIdx++;
+  uint8_t prevCum = (segIdx == 0) ? 0 : cum[segIdx - 1];
+  uint8_t offsetInSeg = (uint8_t)(seq1Based - prevCum - 1); // 0-based within segment (serpentine progression)
+
+  Segment seg = order[segIdx];
+  uint8_t len = segmentLength(LEFT_HAND, seg);
+  uint16_t start = segmentStartIndex(LEFT_HAND, seg);
+  FingerDirection dir = segment_direction(LEFT_HAND, seg);
+
+  if (dir == BASE_TO_TIP) {
+    // Sequencing increases from base upwards for BASE_TO_TIP
+    uint8_t rowFromBase = offsetInSeg;
+    return start + rowFromBase;
+  } else { // TIP_TO_BASE
+    // Sequencing increases from tip downward for TIP_TO_BASE
+    uint8_t rowFromTip = offsetInSeg;
+    return start + (len - 1 - rowFromTip);
+  }
+}
+
+// Right hand order and cumulative lengths for 1..60 indexing
+inline uint16_t right_seq_to_index(uint8_t seq1Based) {
+  if (seq1Based < 1 || seq1Based > 60) return 0xFFFF;
+  // Segment order: THUMB(7), PALM(5), INDEX(13), MIDDLE(13), RING(12), PINKY(10)
+  const Segment order[SEGMENT_COUNT] = { THUMB, PALM, INDEX, MIDDLE, RING, PINKY };
+  const uint8_t cum[SEGMENT_COUNT]   = { 7, 12, 25, 38, 50, 60 };
+  uint8_t segIdx = 0;
+  while (seq1Based > cum[segIdx]) segIdx++;
+  uint8_t prevCum = (segIdx == 0) ? 0 : cum[segIdx - 1];
+  uint8_t offsetInSeg = (uint8_t)(seq1Based - prevCum - 1);
+
+  Segment seg = order[segIdx];
+  uint8_t len = segmentLength(RIGHT_HAND, seg);
+  uint16_t start = segmentStartIndex(RIGHT_HAND, seg);
+  FingerDirection dir = segment_direction(RIGHT_HAND, seg);
+
+  if (dir == BASE_TO_TIP) {
+    uint8_t rowFromBase = offsetInSeg;
+    return start + rowFromBase;
+  } else {
+    uint8_t rowFromTip = offsetInSeg;
+    return start + (len - 1 - rowFromTip);
   }
 }
 
