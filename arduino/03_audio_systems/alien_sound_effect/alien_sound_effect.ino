@@ -44,6 +44,9 @@
 // Main oscillator - sine wave for warm theremin sound
 Oscil <SIN2048_NUM_CELLS, AUDIO_RATE> osc(SIN2048_DATA);
 
+// Reactive harmonic oscillator (adds brightness on quick movements)
+Oscil <SIN2048_NUM_CELLS, AUDIO_RATE> oscHarm(SIN2048_DATA);
+
 // Vibrato LFO for classic theremin wobble
 Oscil <COS2048_NUM_CELLS, CONTROL_RATE> vibrato(COS2048_DATA);
 
@@ -62,6 +65,13 @@ int notes[] = {131,131,131,156,156,175,175,196,196,196,233,233,       // C3 octa
 RollingAverage <int, 4> pAverage;             // Pitch averaging
 RollingAverage <int, 8> vAverage;             // Volume averaging
 int averaged;
+
+// Motion reactivity
+RollingAverage <int, 4> pitchVelAvg;          // Smoothed right-hand movement
+RollingAverage <int, 4> volVelAvg;            // Smoothed left-hand movement
+int prevPitchDur = 0;
+int prevVolDur = 0;
+int harmMix = 0;                               // 0-255, how much harmonic to blend
 
 // Theremin-style vibrato settings
 float vibratoDepth = 0.03;                   // 3% frequency modulation  
@@ -90,6 +100,21 @@ int pitchTimeOut = pitchLowThreshold * 8;
 int volTimeOut = volLowThreshold * 8;
 int smoothVol;
 int vol = 0;
+const bool allowRightHandSolo = true;          // when true, right hand alone produces a low-level sound
+
+// Hard mute when neither hand is present
+volatile bool muteOutput = false;
+
+// Lightweight echo/delay (gesture-controlled)
+#define ECHO_BUFFER_SIZE 256
+int echoBuffer[ECHO_BUFFER_SIZE];
+int echoIndex = 0;
+float echoMix = 0.25;                         // 0.0 - 1.0
+int echoDelay = 128;                          // in samples (0..ECHO_BUFFER_SIZE-1)
+
+// Right-hand-controlled tone (simple low-pass filter)
+int lpfState = 0;                              // filter memory/sample history
+int lpfAlpha = 180;                            // 0..255, higher = brighter
 
 void setup(){
   // Initialize pitch sensor pins (right sensor)
@@ -102,7 +127,10 @@ void setup(){
   pinMode(volIn, INPUT);
   digitalWrite(volOut, LOW);
   
-
+  // Initialize echo buffer to silence
+  for (int i = 0; i < ECHO_BUFFER_SIZE; i++) {
+    echoBuffer[i] = 0;
+  }
   
   Serial.begin(9600);
   Serial.println("MiniMin Theremin Test - Enhanced with Echo!");
@@ -114,6 +142,7 @@ void setup(){
   startMozzi(CONTROL_RATE);                   // Start Mozzi audio
   osc.setFreq(220);                           // Set initial frequency (A3)
   vibrato.setFreq(vibratoRate);               // Set vibrato LFO rate
+  oscHarm.setFreq(440);
 }
 
 // Find nearest note in scale (for stepMode)
@@ -135,7 +164,8 @@ void updateControl(){
   int vDur;
   int freq;
   int targetFreq;
-  long distance;
+  long pitchDistance;
+  long volDistance;
   int jitter;
 
   // === PITCH CONTROL (Right hand) ===
@@ -148,12 +178,13 @@ void updateControl(){
   if (dur < 5) {
     // No echo detected - hand very close or no hand
     freq = highestFreq;  // Very close = high frequency
+    pitchDistance = pitchHighThreshold; // treat as closest distance
   } else {
     // Echo detected - map distance to frequency
-    distance = dur / 6;  // Convert to approximate distance
-    if (distance >= pitchLowThreshold) distance = pitchLowThreshold;
-    if (distance < pitchHighThreshold) distance = pitchHighThreshold;
-    freq = map(distance, pitchHighThreshold, pitchLowThreshold, highestFreq, lowestFreq);
+    pitchDistance = dur / 6;  // Convert to approximate distance
+    if (pitchDistance >= pitchLowThreshold) pitchDistance = pitchLowThreshold;
+    if (pitchDistance < pitchHighThreshold) pitchDistance = pitchHighThreshold;
+    freq = map(pitchDistance, pitchHighThreshold, pitchLowThreshold, highestFreq, lowestFreq);
   }   
   
   // Add slight random jitter for organic sound
@@ -169,10 +200,7 @@ void updateControl(){
     baseFreq = averaged + jitter;
   }
   
-  // Apply classic theremin vibrato
-  float vibratoAmount = vibrato.next() * vibratoDepth;
-  int modulatedFreq = baseFreq + (int)(baseFreq * vibratoAmount);
-  osc.setFreq(modulatedFreq);
+  // Defer vibrato application until after volume sensor processing
 
   // === VOLUME CONTROL (Left hand) ===
   digitalWrite(volOut, HIGH);
@@ -185,18 +213,38 @@ void updateControl(){
     // No echo detected - fade out
     vol = vol - 4;                             
     if (vol < 0) vol = 0;
-    distance = volLowThreshold;  // Treat as far distance
+    volDistance = volLowThreshold;  // Treat as far distance
   } else {
     // Echo detected - fade in and map distance to volume
     vol = vol + 4;                            
     if (vol > 255) vol = 255;
-    distance = vDur / 6;
-    if (distance > volLowThreshold) distance = volLowThreshold;
-    if (distance < volHighThreshold) distance = volHighThreshold;
+    volDistance = vDur / 6;
+    if (volDistance > volLowThreshold) volDistance = volLowThreshold;
+    if (volDistance < volHighThreshold) volDistance = volHighThreshold;
   }
   
+  // If neither hand is present, hard-mute output and skip processing
+  bool rightPresent = (dur >= 5);
+  bool leftPresent = (vDur >= 5);
+  if (!rightPresent && !leftPresent) {
+    smoothVol = 0;
+    muteOutput = true;
+    echoMix = 0.0f;              // ensure no residual echo
+    return;
+  } else {
+    muteOutput = false;
+  }
+
   // Map distance to volume with logarithmic curve for natural sound
-  int linearVol = map(distance, volHighThreshold, volLowThreshold, 255, 0);
+  int linearVol = map(volDistance, volHighThreshold, volLowThreshold, 255, 0);
+  
+  // Right-hand solo fallback: if left hand not detected, let right hand set a quiet floor volume
+  if (allowRightHandSolo && !leftPresent && rightPresent) {
+    int pdClamped = (int)constrain(pitchDistance, pitchHighThreshold, pitchLowThreshold);
+    // closer = louder floor, farther = quieter floor
+    int soloLinearVol = map(pdClamped, pitchHighThreshold, pitchLowThreshold, 200, 60);
+    if (soloLinearVol > linearVol) linearVol = soloLinearVol;
+  }
   
   // Apply logarithmic volume curve (sounds more natural than linear)
   float normalizedVol = linearVol / 255.0;
@@ -204,6 +252,50 @@ void updateControl(){
   int mappedVol = (int)(logVol * 255);
   
   smoothVol = vAverage.next(mappedVol);
+
+  // === Interactivity: react to hand motion and position ===
+  int pitchVel = abs(dur - prevPitchDur);
+  int volVel = abs(vDur - prevVolDur);
+  int pitchVelSm = pitchVelAvg.next(pitchVel);
+  int volVelSm = volVelAvg.next(volVel);
+  prevPitchDur = dur;
+  prevVolDur = vDur;
+
+  float pitchVelNorm = min(1.0f, pitchVelSm / 400.0f);  // tune divisor to taste
+  float volVelNorm = min(1.0f, volVelSm / 400.0f);
+
+  // Dynamic vibrato: closer left hand -> deeper vibrato; quick movements -> even deeper/faster
+  float baselineDepth = 0.01f + (normalizedVol * 0.07f);
+  float motionDepth = pitchVelNorm * 0.03f;
+  vibratoDepth = baselineDepth + motionDepth;           // 0.01 .. ~0.11
+  if (vibratoDepth > 0.15f) vibratoDepth = 0.15f;
+
+  vibratoRate = 4.0f + (volVelNorm * 6.0f);             // 4 .. 10 Hz depending on movement
+  vibrato.setFreq(vibratoRate);
+
+  // Apply vibrato now that we have dynamic parameters
+  float vibratoAmount = vibrato.next() * vibratoDepth;
+  int modulatedFreq = baseFreq + (int)(baseFreq * vibratoAmount);
+  if (modulatedFreq < lowestFreq) modulatedFreq = lowestFreq;
+  if (modulatedFreq > highestFreq) modulatedFreq = highestFreq;
+  osc.setFreq(modulatedFreq);
+
+  // Reactive harmonic content: more on faster right-hand movement
+  harmMix = (int)(pitchVelNorm * 160.0f);               // 0..160 (out of 255)
+  int harmFreq = modulatedFreq * 2;
+  if (harmFreq > 3000) harmFreq = 3000;                 // avoid aliasing
+  oscHarm.setFreq(harmFreq);
+
+  // Gesture-controlled echo: closer left hand -> more echo; farther right hand -> longer delay
+  echoMix = 0.10f + (normalizedVol * 0.35f);            // 0.10 .. 0.45
+  int minDelay = 80;
+  int maxDelay = ECHO_BUFFER_SIZE - 1;
+  int pd = (int)constrain(pitchDistance, pitchHighThreshold, pitchLowThreshold);
+  echoDelay = map(pd, pitchHighThreshold, pitchLowThreshold, minDelay, maxDelay);
+  // Map right-hand distance to tone brightness
+  int minAlpha = 40;                           // darker
+  int maxAlpha = 230;                          // brighter
+  lpfAlpha = map(pd, pitchHighThreshold, pitchLowThreshold, maxAlpha, minAlpha);
   
   // Debug output - REDUCED frequency to avoid audio interference
   static int debugCounter = 0;
@@ -217,6 +309,13 @@ void updateControl(){
     Serial.print("Hz | Vol:");
     Serial.print(smoothVol);
     Serial.print(" | ");
+    Serial.print("VibD:");
+    Serial.print(vibratoDepth, 3);
+    Serial.print(" VibR:");
+    Serial.print(vibratoRate, 2);
+    Serial.print(" Harm:");
+    Serial.print(harmMix);
+    Serial.print(" | ");
     if (dur < 5) Serial.print("P:CLOSE");
     else if (dur > pitchLowThreshold) Serial.print("P:FAR");
     else Serial.print("P:MID");
@@ -229,13 +328,41 @@ void updateControl(){
   }
 }
 
-int updateAudio(){
-  // Generate the main oscillator sample
-  int sample = (osc.next() * smoothVol) >> 8;
-  
-  // Return clean sample
-  return sample;
-}
+ int updateAudio(){
+  // Hard mute when no hands present
+  if (muteOutput) {
+    lpfState = 0;                // reset filter memory
+    // don't advance echo buffer; also ensure no direct output
+    return 0;
+  }
+
+  // Generate base and harmonic samples
+  int baseSample = (osc.next() * smoothVol) >> 8;
+  int harmSample = (oscHarm.next() * smoothVol) >> 8;
+
+  // Blend harmonic content based on motion
+  int combined = baseSample + ((harmSample * harmMix) >> 8);
+
+  // Right-hand tone control: simple low-pass filter (closer = brighter)
+  lpfState = lpfState + (((combined - lpfState) * lpfAlpha) >> 8);
+  int filtered = lpfState;
+
+  // Echo effect
+  int echoPos = (echoIndex - echoDelay + ECHO_BUFFER_SIZE) % ECHO_BUFFER_SIZE;
+  int echoSample = echoBuffer[echoPos];
+  int mixedSample = filtered + (int)(echoSample * echoMix);
+
+  // Store current filtered sample in echo buffer
+  echoBuffer[echoIndex] = filtered;
+  echoIndex++;
+  if (echoIndex >= ECHO_BUFFER_SIZE) echoIndex = 0;
+
+  // Clip to prevent distortion
+  if (mixedSample > 127) mixedSample = 127;
+  if (mixedSample < -128) mixedSample = -128;
+
+  return mixedSample;
+ }
 
 void loop(){
   audioHook();                 // Required for Mozzi

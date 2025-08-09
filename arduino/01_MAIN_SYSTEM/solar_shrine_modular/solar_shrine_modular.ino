@@ -82,7 +82,7 @@ const unsigned long EFFECT_SWITCH_TIMEOUT = 5000; // 5s no hands -> rotate effec
 // Temporary: disable effect rotation to focus on DJ visuals
 const bool DISABLE_EFFECT_ROTATION = true;
 // Temporary test flags
-const bool TEST_ALIEN_ONLY = false;
+const bool TEST_ALIEN_ONLY = true;
 
 
 // Mode constants

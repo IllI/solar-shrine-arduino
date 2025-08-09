@@ -5,8 +5,10 @@ This Arduino sketch creates an alien-like theremin sound effect using the Mozzi 
 
 ## Features
 - **Warm sine wave theremin** with classic vibrato
-- **Echo/delay effect** for alien-like sound
-- **C Minor Pentatonic scale** quantization
+- **Gesture-reactive vibrato**: depth and rate adapt to hand distance and speed
+- **Motion-driven harmonics**: quick pitch-hand moves add a bright harmonic layer
+- **Gesture-controlled echo**: left-hand distance sets echo mix; right-hand distance sets delay
+- **C Minor Pentatonic scale** quantization (optional)
 - **Dual sensor control**: Right hand = pitch, Left hand = volume
 - **Enhanced sensitivity** with debug output
 
@@ -29,10 +31,10 @@ This Arduino sketch creates an alien-like theremin sound effect using the Mozzi 
 4. Right hand controls pitch, left hand controls volume
 
 ## Tuning
-- Adjust `vibratoRate` for faster/slower wobble
-- Modify `vibratoDepth` for more/less vibrato
-- Tune `echoMix` for echo intensity
-- Watch Serial Monitor for sensor feedback
+- **Vibrato**: now dynamic. Baseline scales with left-hand distance; movement increases depth/rate.
+- **Harmonics**: `harmMix` is automatic; move the right hand quickly to hear added brightness.
+- **Echo**: `echoMix` rises as the left hand gets closer; `echoDelay` grows as the right hand moves farther.
+- Watch Serial Monitor for sensor and modulation readouts (VibD, VibR, Harm).
 
 ## Status
 ✅ Recovered from git history (commit b93c0d2)
