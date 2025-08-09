@@ -380,8 +380,21 @@ static void updateAlienLedVisual(float dLeft, float dRight) {
   uint8_t col0L, row0L; leftSeqToColRow(31, col0L, row0L);
 
   // RIGHT HAND: keep previous center near INDEX mid
-  uint8_t rightCenterCol = 2; // INDEX
-  uint8_t rightCenterRow = (rowsR / 2) + 1; // bring right-hand circle slightly down
+  auto rightSeqToColRow = [&](uint8_t seq, uint8_t &col, uint8_t &row){
+    Segment order[SEGMENT_COUNT] = { THUMB, PALM, INDEX, MIDDLE, RING, PINKY };
+    uint8_t cum[SEGMENT_COUNT]   = { 7, 12, 25, 38, 50, 60 };
+    uint8_t segIdx = 0; while (seq > cum[segIdx]) segIdx++;
+    col = segIdx; // column index in right order
+    uint8_t prevCum = (segIdx == 0) ? 0 : cum[segIdx - 1];
+    uint8_t offset = (uint8_t)(seq - prevCum - 1);
+    Segment seg = order[segIdx];
+    uint8_t len = segmentLength(RIGHT_HAND, seg);
+    FingerDirection dir = segment_direction(RIGHT_HAND, seg);
+    // Normalize row from tip (0 at tip increasing toward base)
+    if (dir == TIP_TO_BASE) row = offset; else row = (uint8_t)(len - 1 - offset);
+  };
+
+  uint8_t col0R, row0R; rightSeqToColRow(32, col0R, row0R); // anchor at seq 32 (middle segment center)
 
   // Convert selected grid cells to normalized x,y by averaging a small neighborhood
   auto gridCellToXY = [&](HandSide side, uint8_t col, uint8_t row, float& outX, float& outY) {
@@ -392,7 +405,7 @@ static void updateAlienLedVisual(float dLeft, float dRight) {
 
   float cxL, cyL, cxR, cyR;
   gridCellToXY(LEFT_HAND, col0L, row0L, cxL, cyL);
-  gridCellToXY(RIGHT_HAND, rightCenterCol, rightCenterRow, cxR, cyR);
+  gridCellToXY(RIGHT_HAND, col0R, row0R, cxR, cyR);
 
   // Map distance 5..50 cm → radius 0.05..0.24 (closer = larger)
   auto mapRadius = [](float dCm) -> float {
@@ -414,7 +427,7 @@ static void updateAlienLedVisual(float dLeft, float dRight) {
   };
 
   const uint8_t rL_grid = mapRadiusGrid(dLeft, rowsL);
-  const float rR = mapRadius(dRight);
+  const uint8_t rR_grid = mapRadiusGrid(dRight, rowsR);
 
   // Draw black base
   fill_solid(leds, NUM_LEDS, CRGB::Black);
@@ -443,10 +456,18 @@ static void updateAlienLedVisual(float dLeft, float dRight) {
     }
 
     float iR = 0.0f;
-    float dRightN = sqrtf((x - cxR) * (x - cxR) + (y - cyR) * (y - cyR));
-    if (rR > 0.0f && dRightN < rR) {
-      float t = 1.0f - (dRightN / rR);
-      iR = t * t;
+    {
+      if (i >= NUM_LEDS/2) {
+        for (uint8_t s = 1; s <= 60; ++s) {
+          uint8_t c, r; rightSeqToColRow(s, c, r);
+          int dc = (int)c - (int)col0R;
+          int dr = (int)r - (int)row0R;
+          if ((dc*dc + dr*dr) <= (int)rR_grid*(int)rR_grid) {
+            uint16_t idx = right_seq_to_index(s);
+            if (idx == i) { iR = 1.0f; break; }
+          }
+        }
+      }
     }
 
     uint16_t val = (uint16_t)((iL + iR) * 255.0f);
