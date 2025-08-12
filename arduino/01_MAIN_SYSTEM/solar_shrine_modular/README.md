@@ -61,6 +61,15 @@ The **Solar Shrine Modular System** is the main integration hub that combines th
 - **Distance mapping**: Close = bright colors, Far = dim colors
 - **Mode switching**: Auto-switch between attract and interactive modes
 
+### **Effect Rotation**
+- Rotation cycles through `dj_scratch → alien → robots → mini_theremin` whenever no hands are detected for 5 seconds.
+- Rotation resumes after returning to attract mode.
+- You can change the rotation order in `nextEffect(...)` inside `solar_shrine_modular.ino`.
+
+### **Testing Flags**
+- `DISABLE_EFFECT_ROTATION` (bool): set to `false` to enable rotation (default now).
+- `TEST_ALIEN_ONLY` (bool): when `true`, locks to the Alien effect for audio testing. Default is `false`.
+
 ## 📊 **System Architecture**
 
 ### **Modular Design**
@@ -122,7 +131,7 @@ The **Solar Shrine Modular System** is the main integration hub that combines th
 4. **Install required libraries**:
    - FastLED (latest version)
    - ArduinoJson (v7.x)
-   - NewPing (latest version)
+    - NewTone (for Alien theremin audio)
 5. **Upload to Arduino Mega 2560**
 
 ### **Required Files**
@@ -147,6 +156,12 @@ The **Solar Shrine Modular System** is the main integration hub that combines th
 - Modify `getInteractiveColor()` for different color schemes
 - Adjust `ATTRACT_PERIOD` for different fade timing
 - Change `NUM_LEDS` for different strip lengths
+  
+#### Theremin Fireball Visual
+- Runs in `MINITHEREMIN` mode.
+- Right hand controls sweep speed (closer = faster).
+- Left hand controls size/brightness.
+- Color palette is strictly orange→yellow across both hands.
 
 ### **Sensor Sensitivity**
 - Adjust `MIN_RANGE` and `MAX_RANGE` for detection zones
