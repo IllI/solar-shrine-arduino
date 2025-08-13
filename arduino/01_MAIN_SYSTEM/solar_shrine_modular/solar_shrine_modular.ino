@@ -31,7 +31,6 @@
  * Date: 2024
  */
 
-#include <NewTone.h>
 #define FASTLED_FORCE_BITBANG
 #define FASTLED_ALLOW_INTERRUPTS 1
 #include <FastLED.h>
@@ -76,14 +75,14 @@ enum EffectType {
   MINITHEREMIN
 };
 
-EffectType currentEffect = ALIEN; // Test: start on Alien for quick verification
+EffectType currentEffect = DJ_SCRATCH; // Test: start on Alien for quick verification
 
 const unsigned long INTERACTIVE_TIMEOUT = 10000; // 10s no hands -> back to attract
 const unsigned long EFFECT_SWITCH_TIMEOUT = 5000; // 5s no hands -> rotate effect
 // Effect rotation settings
-const bool DISABLE_EFFECT_ROTATION = true; // Test: lock effect to prevent rotation
+const bool DISABLE_EFFECT_ROTATION = false; // Enable rotation after timeout when no hands
 // Testing flags
-const bool TEST_ALIEN_ONLY = true; // Test mode: force Alien effect in setup
+const bool TEST_ALIEN_ONLY = false; // Allow all effects; no forced ALIEN-only mode
 
 
 // Mode constants
@@ -190,6 +189,53 @@ CRGB getAttractColor(unsigned long currentTime) {
   return CRGB(red, green, blue);
 }
 
+// =============================================================================
+// HANDS DETECTION (sacrosanct) – identical logic to solar_shrine_theremin.ino
+// =============================================================================
+static void updateHandsDetectionAndMode(
+  float avgDistance1,
+  float avgDistance2,
+  bool &inRange1,
+  bool &inRange2,
+  bool &handsDetected,
+  unsigned long currentTime
+) {
+  // Strict in-range check
+  inRange1 = (avgDistance1 >= MIN_RANGE && avgDistance1 <= MAX_RANGE);
+  inRange2 = (avgDistance2 >= MIN_RANGE && avgDistance2 <= MAX_RANGE);
+  handsDetected = inRange1 || inRange2;
+
+  // Additional validation in ATTRACT mode: require 3 consecutive detections
+  static int falseDetectionCount = 0;
+  if (currentMode == ATTRACT_MODE && handsDetected) {
+    falseDetectionCount++;
+    if (falseDetectionCount < 3) {
+      handsDetected = false;
+      inRange1 = false;
+      inRange2 = false;
+    }
+  } else {
+    falseDetectionCount = 0;
+  }
+
+  // Mode state machine and last-hand timestamp
+  if (handsDetected) {
+    if (currentMode == ATTRACT_MODE) {
+      currentMode = INTERACTIVE_MODE;
+    }
+    lastHandDetectedTime = currentTime;
+  } else {
+    if (currentMode == INTERACTIVE_MODE &&
+        (currentTime - lastHandDetectedTime) >= INTERACTIVE_TIMEOUT) {
+      // Smooth transition back to attract mode (match theremin logic)
+      CRGB transitionColor = (lastLeftColor.r + lastLeftColor.g > lastRightColor.r + lastRightColor.g)
+                               ? lastLeftColor : lastRightColor;
+      calculatePhaseOffset(transitionColor);
+      currentMode = ATTRACT_MODE;
+    }
+  }
+}
+
 void calculatePhaseOffset(CRGB currentColor) {
   float greenRatio = currentColor.green / 255.0;
   float sineValue = 2.0 * greenRatio - 1.0;
@@ -254,15 +300,14 @@ const char* effect_name(EffectType effect) {
 
 // Hard kill audio output on pin 12 regardless of current effect
 void audio_all_off() {
-  // Stop NewTone
-  noNewTone(12);
+  // Physically mute by tri-stating pin 12 so no carrier reaches the amplifier
+  pinMode(12, INPUT);
+
   // If not running the Mozzi-based ALIEN effect, it's safe to fully stop Timer1
   if (currentEffect != ALIEN) {
     TCCR1A = 0;
     TCCR1B = 0;
     TIMSK1 &= ~_BV(OCIE1B);
-    // Tri-state the pin used by NewTone/DJ when not in ALIEN mode
-    pinMode(12, INPUT);
   }
 }
 
@@ -660,10 +705,8 @@ void loop() {
   unsigned long sinceLastHand = currentTime - lastHandDetectedTime;
   // Give Mozzi priority to keep the audio buffer filled during ALIEN
   if (currentEffect == ALIEN) {
-    // Pump multiple times early to avoid buffer underruns
-    for (uint8_t i = 0; i < 12; ++i) {
-      alien_audio_hook();
-    }
+    // Follow Mozzi pattern: call hook once per loop
+    alien_audio_hook();
   }
   
   // Read sensors (alternate per loop when ALIEN is active to reduce blocking)
@@ -709,12 +752,8 @@ void loop() {
     avgDistance2 = distance2;
   }
 
-  bool inRange1 = (avgDistance1 >= MIN_RANGE && avgDistance1 <= MAX_RANGE);
-  bool inRange2 = (avgDistance2 >= MIN_RANGE && avgDistance2 <= MAX_RANGE);
-  // Use RAW distances to decide if hands are present (treat 0 as very close)
-  bool inRangeRaw1 = (distance1 == 0.0f) || (distance1 >= MIN_RANGE && distance1 <= MAX_RANGE);
-  bool inRangeRaw2 = (distance2 == 0.0f) || (distance2 >= MIN_RANGE && distance2 <= MAX_RANGE);
-  bool handsDetected = inRangeRaw1 || inRangeRaw2;
+  bool inRange1, inRange2, handsDetected;
+  updateHandsDetectionAndMode(avgDistance1, avgDistance2, inRange1, inRange2, handsDetected, currentTime);
 
   // Detect rising edge of hand presence to re-initialize the active effect
   static bool prevHandsDetected = false;
@@ -756,14 +795,16 @@ void loop() {
 
   // Update the current effect only if hands detected; otherwise ensure silence
   if (handsDetected) {
-    // Feed RAW distances so 0cm (very close) is honored by ALIEN
-    effect_update(currentEffect, distance1, distance2);
+    // For ALIEN, updateControl() handles sensing; avoid double work
+    if (currentEffect != ALIEN) {
+      effect_update(currentEffect, distance1, distance2);
+    }
     // DJ LED visual
     if (currentEffect == DJ_SCRATCH && currentMode == INTERACTIVE_MODE) {
       updateDJLedVisual(distance1, distance2);
     } else if (currentEffect == ALIEN && currentMode == INTERACTIVE_MODE) {
-      // Disable LED rendering during ALIEN to keep Mozzi ISR timing stable
-      // updateAlienLedVisual(distance1, distance2);
+      // Re-enable ALIEN LED visual now that timing is stable
+      updateAlienLedVisual(distance1, distance2);
       // Mozzi stepped at end of loop() - don't double-call here
     } else if (currentEffect == MINITHEREMIN && currentMode == INTERACTIVE_MODE) {
       updateThereminLedVisual(distance1, distance2);
@@ -804,14 +845,19 @@ void loop() {
     if (prevHandsDetected && !handsDetected) {
       effect_disable(currentEffect);
     }
+    // Explicitly hard-mute Mozzi-based ALIEN on hands removed
+    if (currentEffect == ALIEN) {
+      // Signal ALIEN to mute immediately
+      extern void alien_update(float, float);
+      alien_update(999.0f, 999.0f); // will cause smoothVol=0 via presence logic
+    }
   }
 
   // Update hand edge tracker
   prevHandsDetected = handsDetected;
 
-  // Update LEDs: if DJ interactive, the DJ visual already drew the frame
-  // During ALIEN interactive mode, skip background LED frame to keep audio timing solid
-  if (!((currentEffect == DJ_SCRATCH || /*currentEffect == ALIEN ||*/ currentEffect == MINITHEREMIN) && currentMode == INTERACTIVE_MODE)) {
+  // Update LEDs: if an effect draws its own interactive frame, skip the background pass
+  if (!((currentEffect == DJ_SCRATCH || currentEffect == ALIEN || currentEffect == MINITHEREMIN) && currentMode == INTERACTIVE_MODE)) {
     updateLEDs(avgDistance1, avgDistance2, inRange1, inRange2, currentTime);
   }
 
@@ -851,10 +897,8 @@ void loop() {
     lastJsonMs = nowMs;
   }
 
-  // Always step Mozzi when ALIEN is selected to keep audio smooth
-  if (currentEffect == ALIEN) {
-    alien_audio_hook();
-  } else {
+  // Keep loop cooperative when not ALIEN
+  if (currentEffect != ALIEN) {
     delay(20);
   }
 }

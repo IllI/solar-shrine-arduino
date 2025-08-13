@@ -18,8 +18,8 @@
 #include <NewPing.h>
 
 // Sensor pins
-const int trigPin1 = 10;  // Left sensor
-const int echoPin1 = 11;  
+const int trigPin1 = 11;  // Left sensor
+const int echoPin1 = 12;  
 const int trigPin2 = 5;   // Right sensor
 const int echoPin2 = 6;
 
@@ -87,13 +87,13 @@ void setup() {
   FastLED.show();
   
   // Initialize sample arrays
-  for (int i = 0; i < SAMPLES; i++) {
-    distance1Samples[i] = MAX_RANGE + 10;
-    distance2Samples[i] = MAX_RANGE + 10;
-  }
+  // for (int i = 0; i < SAMPLES; i++) {
+  //   distance1Samples[i] = MAX_RANGE + 10;
+  //   distance2Samples[i] = MAX_RANGE + 10;
+  // }
   
-  // Startup LED sequence
-  playStartupSequence();
+  // // Startup LED sequence
+  // playStartupSequence();
 }
 
 void playStartupSequence() {

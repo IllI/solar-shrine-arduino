@@ -13,8 +13,8 @@
  */
 
 // Sensor pins
-const int trigPin1 = 9;
-const int echoPin1 = 10;
+const int trigPin1 = 10;
+const int echoPin1 = 11;
 const int trigPin2 = 5;
 const int echoPin2 = 6;
 

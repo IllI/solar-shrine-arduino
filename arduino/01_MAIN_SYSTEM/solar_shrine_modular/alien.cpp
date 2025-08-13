@@ -21,7 +21,7 @@
 // Audio pin automatically handled by Mozzi PWM mode (configured for pin 12)
 
 // Enable quick audio path diagnostic (set to 1 to force a constant test tone)
-#define ALIEN_TEST_TONE 1
+#define ALIEN_TEST_TONE 0
 
 // Oscillators
 static Oscil<SIN2048_NUM_CELLS, AUDIO_RATE> osc(SIN2048_DATA);
@@ -63,6 +63,12 @@ static float lastLeft = 999.0f, lastRight = 999.0f;
 
 static inline bool inRange(float cm) { return cm >= 5.0f && cm <= 50.0f; }
 
+// Use shield pins (same as working alien_sound_effect.ino)
+static const int LEFT_TRIG_PIN = 10;  // left (volume) trigger
+static const int LEFT_ECHO_PIN = 11;  // left (volume) echo (must not be driven by Mozzi)
+static const int RIGHT_TRIG_PIN = 5;  // right (pitch) trigger
+static const int RIGHT_ECHO_PIN = 6;  // right (pitch) echo
+
 void alien_setup() {
   // Initialize Mozzi once and leave it running to avoid PWM instability
   startMozzi(CONTROL_RATE);
@@ -72,6 +78,10 @@ void alien_setup() {
   oscHarm.setFreq(440);
   vibrato.setFreq(vibratoRate);
   for (int i = 0; i < ECHO_BUFFER_SIZE; ++i) echoBuffer[i] = 0;
+  
+  // Ensure sensor pins are configured (redundant to main setup but harmless)
+  pinMode(LEFT_TRIG_PIN, OUTPUT); pinMode(LEFT_ECHO_PIN, INPUT);
+  pinMode(RIGHT_TRIG_PIN, OUTPUT); pinMode(RIGHT_ECHO_PIN, INPUT);
   
   // No manual timer setup needed - Mozzi's PWM mode handles it automatically
 }
@@ -95,6 +105,8 @@ void alien_update(float distanceLeft, float distanceRight) {
   if (!rightPresent && !leftPresent) {
     smoothVol = 0;
     echoMix = 0.0f;
+    // Ensure hardware pin is muted when idle
+    pinMode(MOZZI_AUDIO_PIN_1, INPUT);
     return;
   }
 
@@ -209,7 +221,107 @@ int updateAudio() {
 
 // Mozzi control-rate callback (required). We drive parameters from alien_update().
 void updateControl() {
-  // no-op; all control updates are done in alien_update via main loop distances
+  // Read sensors (microseconds); brief pulses and modest timeouts to keep ISR fed
+  auto pulseRead = [](int trig, int echo, unsigned long timeoutUs) -> unsigned long {
+    digitalWrite(trig, LOW); delayMicroseconds(2);
+    digitalWrite(trig, HIGH); delayMicroseconds(10);
+    digitalWrite(trig, LOW);
+    return pulseIn(echo, HIGH, timeoutUs);
+  };
+
+  const unsigned long VOL_TIMEOUT = 8000UL;
+  const unsigned long PITCH_TIMEOUT = 8000UL;
+
+  // Alternate sensor reads each control tick to avoid long blocking
+  static bool readPitchNext = true;
+  static unsigned long lastPitchDur = 0;
+  static unsigned long lastVolDur = 0;
+  if (readPitchNext) {
+    lastPitchDur = pulseRead(RIGHT_TRIG_PIN, RIGHT_ECHO_PIN, PITCH_TIMEOUT);
+  } else {
+    lastVolDur = pulseRead(LEFT_TRIG_PIN, LEFT_ECHO_PIN, VOL_TIMEOUT);
+  }
+  readPitchNext = !readPitchNext;
+
+  unsigned long pitchDur = lastPitchDur;
+  unsigned long volDur   = lastVolDur;
+
+  // Detect presence
+  bool rightPresent = (pitchDur >= 5);
+  bool leftPresent  = (volDur   >= 5);
+
+  if (!rightPresent && !leftPresent) {
+    smoothVol = 0;
+    echoMix = 0.0f;
+    lastLeft = 999.0f; lastRight = 999.0f;
+    // Ensure hardware pin is muted when idle
+    pinMode(MOZZI_AUDIO_PIN_1, INPUT);
+    return;
+  }
+
+  // Map pitch distance to frequency (similar to working sketch):
+  const int lowestFreq = 131;
+  const int highestFreq = 1046;
+  long pitchDistance = rightPresent ? (long)(pitchDur / 6) : 800; // approx cm-like scale
+  if (rightPresent) {
+    if (pitchDistance < 30) pitchDistance = 30; if (pitchDistance > 800) pitchDistance = 800;
+    int freq = map((int)pitchDistance, 30, 800, highestFreq, lowestFreq);
+    baseFreq = pAverage.next(freq);
+  }
+
+  // Volume mapping (left hand primary, right-hand fallback)
+  int linearVol = 0; // 0..255
+  if (leftPresent) {
+    long volDistance = (long)(volDur / 6);
+    if (volDistance < 30) volDistance = 30; if (volDistance > 800) volDistance = 800;
+    int v = map((int)volDistance, 30, 800, 255, 0);
+    // logarithmic feel
+    float n = v / 255.0f; v = (int)(n * n * 255.0f);
+    linearVol = v;
+  } else if (rightPresent) {
+    int pd = (int)constrain(pitchDistance, 30, 800);
+    linearVol = map(pd, 30, 800, 160, 40); // modest solo floor
+  }
+  int volSm = vAverage.next(linearVol);
+  smoothVol = (smoothVol * 3 + volSm) >> 2;
+  if (smoothVol < 0) smoothVol = 0; if (smoothVol > 255) smoothVol = 255;
+
+  // Motion-derived vibrato and harmonics
+  static long prevPd = -1, prevVd = -1;
+  long pdNow = pitchDistance;
+  long vdNow = leftPresent ? (long)(volDur / 6) : 800;
+  float pitchVelNorm = (prevPd >= 0) ? min(1.0f, fabsf(pdNow - prevPd) / 80.0f) : 0.0f;
+  float volVelNorm   = (prevVd >= 0) ? min(1.0f, fabsf(vdNow - prevVd) / 80.0f)   : 0.0f;
+  prevPd = pdNow; prevVd = vdNow;
+
+  float normalizedVol = smoothVol / 255.0f;
+  float baselineDepth = 0.01f + (normalizedVol * 0.07f);
+  float motionDepth   = pitchVelNorm * 0.03f;
+  vibratoDepth = min(0.15f, baselineDepth + motionDepth);
+  vibratoRate  = 4.0f + (volVelNorm * 6.0f); if (vibratoRate > 10.0f) vibratoRate = 10.0f;
+  vibrato.setFreq(vibratoRate);
+
+  // Apply vibrato
+  float vibAmount = vibrato.next() * vibratoDepth;
+  int modFreq = baseFreq + (int)(baseFreq * vibAmount);
+  if (modFreq < lowestFreq) modFreq = lowestFreq; if (modFreq > highestFreq) modFreq = highestFreq;
+  osc.setFreq(modFreq);
+
+  // Harmonics and tone
+  harmMix = (int)(pitchVelNorm * 160.0f);
+  int harmFreq = modFreq * 2; if (harmFreq > 3000) harmFreq = 3000; oscHarm.setFreq(harmFreq);
+
+  // Echo/tone params derived from pitchDistance
+  int pd = (int)constrain(pitchDistance, 30, 800);
+  echoMix = 0.10f + (normalizedVol * 0.35f);
+  echoDelay = map(pd, 30, 800, 80, ECHO_BUFFER_SIZE - 1);
+  lpfAlpha = map(pd, 30, 800, 230, 40); lpfAlpha = constrain(lpfAlpha, 40, 230);
+
+  // Expose last distances as cm-like values for debug
+  lastRight = (float)pdNow; lastLeft = (float)vdNow;
+
+  // We have hands: ensure audio pin is configured for PWM output again
+  pinMode(MOZZI_AUDIO_PIN_1, OUTPUT);
 }
 
 // audioOutput() function not needed - Mozzi's PWM mode handles output automatically
