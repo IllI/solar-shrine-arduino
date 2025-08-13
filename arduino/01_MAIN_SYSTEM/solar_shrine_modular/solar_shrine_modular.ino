@@ -301,10 +301,9 @@ const char* effect_name(EffectType effect) {
 
 // Hard kill audio output on pin 12 regardless of current effect
 void audio_all_off() {
-  // Always hard-mute the physical output so the amplifier sees no carrier
-  pinMode(12, INPUT);
-  // Only stop Timer1 when not running ALIEN (Mozzi)
+  // If not running the Mozzi-based ALIEN effect, it's safe to fully stop Timer1 and tri-state pin 12
   if (currentEffect != ALIEN) {
+    pinMode(12, INPUT);
     TCCR1A = 0;
     TCCR1B = 0;
     TIMSK1 &= ~_BV(OCIE1B);
@@ -476,29 +475,10 @@ static void updateAlienLedVisual(float dLeft, float dRight) {
     return (uint8_t)(r + 0.5f);
   };
 
-  // Remap distances so that visuals which previously appeared around ~40cm
-  // are now triggered in the 12..30cm range.
-  auto remapAlienDistance = [](float dCm) -> float {
-    if (dCm <= 0) return dCm;
-    // Define old "magic" band ~35..45 cm and new target band 12..30 cm
-    const float oldA = 35.0f, oldB = 45.0f;
-    const float newA = 12.0f, newB = 30.0f;
-    // If within new band, linearly map into the old band
-    if (dCm >= newA && dCm <= newB) {
-      float t = (dCm - newA) / (newB - newA); // 0..1 across 12..30
-      return oldA + t * (oldB - oldA);
-    }
-    // Outside new band, leave as-is
-    return dCm;
-  };
+  const uint8_t rL_grid = mapRadiusGrid(dLeft, rowsL);
+  const uint8_t rR_grid = mapRadiusGrid(dRight, rowsR);
 
-  float dL = remapAlienDistance(dLeft);
-  float dR = remapAlienDistance(dRight);
-
-  const uint8_t rL_grid = mapRadiusGrid(dL, rowsL);
-  const uint8_t rR_grid = mapRadiusGrid(dR, rowsR);
-
-  // Draw black base
+  // Clear to black; per-frame direct draw
   fill_solid(leds, NUM_LEDS, CRGB::Black);
 
   // Accumulate intensities from both hands, clamp to 255
