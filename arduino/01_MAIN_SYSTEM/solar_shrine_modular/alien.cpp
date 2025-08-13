@@ -105,9 +105,12 @@ void alien_update(float distanceLeft, float distanceRight) {
   if (!rightPresent && !leftPresent) {
     smoothVol = 0;
     echoMix = 0.0f;
-    // Ensure hardware pin is muted when idle
+    // Ensure the physical pin is muted when idle
     pinMode(MOZZI_AUDIO_PIN_1, INPUT);
     return;
+  } else {
+    // Hands present: ensure PWM output is enabled again
+    pinMode(MOZZI_AUDIO_PIN_1, OUTPUT);
   }
 
   // Volume mapping (left hand primary, right-hand fallback)
@@ -184,6 +187,14 @@ void alien_sense(float &outLeftCm, float &outRightCm) {
   outLeftCm = lastLeft; outRightCm = lastRight;
 }
 
+bool alien_is_test_tone_enabled() {
+#if ALIEN_TEST_TONE
+  return true;
+#else
+  return false;
+#endif
+}
+
 // Mozzi audio callback
 int updateAudio() {
 #if ALIEN_TEST_TONE
@@ -207,13 +218,12 @@ int updateAudio() {
   lpfState = lpfState + (((combined - lpfState) * lpfAlpha) >> 8);
   int filtered = lpfState;
 
-  // Echo - keep disabled for stability
-  // int echoPos = (echoIndex - echoDelay + ECHO_BUFFER_SIZE) % ECHO_BUFFER_SIZE;
-  // int echoSample = echoBuffer[echoPos];
-  // int mixed = filtered + (int)(echoSample * echoMix);
-  // echoBuffer[echoIndex] = filtered;
-  // echoIndex++; if (echoIndex >= ECHO_BUFFER_SIZE) echoIndex = 0;
-  int mixed = filtered; // No echo for now
+  // Echo processing (match alien_sound_effect.ino)
+  int echoPos = (echoIndex - echoDelay + ECHO_BUFFER_SIZE) % ECHO_BUFFER_SIZE;
+  int echoSample = echoBuffer[echoPos];
+  int mixed = filtered + (int)(echoSample * echoMix);
+  echoBuffer[echoIndex] = filtered;
+  echoIndex++; if (echoIndex >= ECHO_BUFFER_SIZE) echoIndex = 0;
   if (mixed > 127) mixed = 127; if (mixed < -128) mixed = -128;
   // Return plain int like the working alien_sound_effect.ino
   return mixed;
@@ -254,9 +264,12 @@ void updateControl() {
     smoothVol = 0;
     echoMix = 0.0f;
     lastLeft = 999.0f; lastRight = 999.0f;
-    // Ensure hardware pin is muted when idle
+    // Ensure the physical pin is muted when idle
     pinMode(MOZZI_AUDIO_PIN_1, INPUT);
     return;
+  } else {
+    // Hands present: ensure PWM output is enabled again
+    pinMode(MOZZI_AUDIO_PIN_1, OUTPUT);
   }
 
   // Map pitch distance to frequency (similar to working sketch):
@@ -320,8 +333,7 @@ void updateControl() {
   // Expose last distances as cm-like values for debug
   lastRight = (float)pdNow; lastLeft = (float)vdNow;
 
-  // We have hands: ensure audio pin is configured for PWM output again
-  pinMode(MOZZI_AUDIO_PIN_1, OUTPUT);
+  // Ensure audio pin stays configured for Mozzi PWM while ALIEN is active
 }
 
 // audioOutput() function not needed - Mozzi's PWM mode handles output automatically

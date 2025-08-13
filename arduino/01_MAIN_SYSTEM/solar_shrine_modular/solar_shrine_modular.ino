@@ -75,14 +75,15 @@ enum EffectType {
   MINITHEREMIN
 };
 
-EffectType currentEffect = DJ_SCRATCH; // Test: start on Alien for quick verification
+EffectType currentEffect = ALIEN; // Test: start on Alien for troubleshooting
 
 const unsigned long INTERACTIVE_TIMEOUT = 10000; // 10s no hands -> back to attract
 const unsigned long EFFECT_SWITCH_TIMEOUT = 5000; // 5s no hands -> rotate effect
 // Effect rotation settings
-const bool DISABLE_EFFECT_ROTATION = false; // Enable rotation after timeout when no hands
+// In test mode, disable rotation to isolate the ALIEN effect
 // Testing flags
-const bool TEST_ALIEN_ONLY = false; // Allow all effects; no forced ALIEN-only mode
+const bool TEST_ALIEN_ONLY = true; // Force ALIEN-only mode for troubleshooting
+const bool DISABLE_EFFECT_ROTATION = TEST_ALIEN_ONLY ? true : false;
 
 
 // Mode constants
@@ -300,10 +301,9 @@ const char* effect_name(EffectType effect) {
 
 // Hard kill audio output on pin 12 regardless of current effect
 void audio_all_off() {
-  // Physically mute by tri-stating pin 12 so no carrier reaches the amplifier
+  // Always hard-mute the physical output so the amplifier sees no carrier
   pinMode(12, INPUT);
-
-  // If not running the Mozzi-based ALIEN effect, it's safe to fully stop Timer1
+  // Only stop Timer1 when not running ALIEN (Mozzi)
   if (currentEffect != ALIEN) {
     TCCR1A = 0;
     TCCR1B = 0;
@@ -476,8 +476,27 @@ static void updateAlienLedVisual(float dLeft, float dRight) {
     return (uint8_t)(r + 0.5f);
   };
 
-  const uint8_t rL_grid = mapRadiusGrid(dLeft, rowsL);
-  const uint8_t rR_grid = mapRadiusGrid(dRight, rowsR);
+  // Remap distances so that visuals which previously appeared around ~40cm
+  // are now triggered in the 12..30cm range.
+  auto remapAlienDistance = [](float dCm) -> float {
+    if (dCm <= 0) return dCm;
+    // Define old "magic" band ~35..45 cm and new target band 12..30 cm
+    const float oldA = 35.0f, oldB = 45.0f;
+    const float newA = 12.0f, newB = 30.0f;
+    // If within new band, linearly map into the old band
+    if (dCm >= newA && dCm <= newB) {
+      float t = (dCm - newA) / (newB - newA); // 0..1 across 12..30
+      return oldA + t * (oldB - oldA);
+    }
+    // Outside new band, leave as-is
+    return dCm;
+  };
+
+  float dL = remapAlienDistance(dLeft);
+  float dR = remapAlienDistance(dRight);
+
+  const uint8_t rL_grid = mapRadiusGrid(dL, rowsL);
+  const uint8_t rR_grid = mapRadiusGrid(dR, rowsR);
 
   // Draw black base
   fill_solid(leds, NUM_LEDS, CRGB::Black);
