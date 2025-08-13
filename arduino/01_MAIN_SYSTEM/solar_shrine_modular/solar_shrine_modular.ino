@@ -75,15 +75,15 @@ enum EffectType {
   MINITHEREMIN
 };
 
-EffectType currentEffect = ALIEN; // Test: start on Alien for troubleshooting
+EffectType currentEffect = DJ_SCRATCH; // Default start effect
 
 const unsigned long INTERACTIVE_TIMEOUT = 10000; // 10s no hands -> back to attract
 const unsigned long EFFECT_SWITCH_TIMEOUT = 5000; // 5s no hands -> rotate effect
 // Effect rotation settings
-// In test mode, disable rotation to isolate the ALIEN effect
 // Testing flags
-const bool TEST_ALIEN_ONLY = true; // Force ALIEN-only mode for troubleshooting
-const bool DISABLE_EFFECT_ROTATION = TEST_ALIEN_ONLY ? true : false;
+ const bool TEST_ALIEN_ONLY = false; // Allow all effects
+ const bool DISABLE_EFFECT_ROTATION = false; // Enable rotation after timeout when no hands
+ const bool TEST_VERBOSE = false; // When true, allow non-JSON serial prints
 
 
 // Mode constants
@@ -786,8 +786,10 @@ void loop() {
         currentEffect = nextEffect(currentEffect);
         // Defer setup until hands are detected to avoid any audio during idle
         lastEffectRotationTime = currentTime;
-        Serial.print(F("Rotated effect to: "));
-        Serial.println(effect_name(currentEffect));
+        if (TEST_VERBOSE) {
+          Serial.print(F("Rotated effect to: "));
+          Serial.println(effect_name(currentEffect));
+        }
       }
     }
   }
@@ -871,7 +873,7 @@ void loop() {
   if (currentEffect == ALIEN && currentMode == INTERACTIVE_MODE) {
     if (nowMs - lastJsonMs < 250) allowJson = false; // ~4 Hz max during ALIEN
   }
-  if (allowJson && (handsDetected || lastHandsDetected || (currentMode != lastReportedMode))) {
+   if (allowJson && (handsDetected || lastHandsDetected || (currentMode != lastReportedMode))) {
     StaticJsonDocument<400> doc;
     
     doc["left"] = int(avgDistance1);
@@ -891,7 +893,7 @@ void loop() {
     serializeJson(doc, Serial);
     Serial.println();
     
-    lastReportedMode = currentMode;
+     lastReportedMode = currentMode;
     lastHandsDetected = handsDetected;
     lastJsonMs = nowMs;
   }

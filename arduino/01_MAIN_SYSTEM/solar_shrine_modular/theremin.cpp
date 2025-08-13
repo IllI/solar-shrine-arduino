@@ -9,12 +9,16 @@ const float MAX_RANGE_THEREMIN = 50.0;
 
 void theremin_setup() {
   pinMode(AUDIO_PIN, OUTPUT);
+#if TEST_VERBOSE
   Serial.println(F("Theremin effect initialized."));
+#endif
 }
 
 void theremin_disable() {
   noNewTone(AUDIO_PIN);
+#if TEST_VERBOSE
   Serial.println(F("Theremin effect disabled."));
+#endif
 }
 
 void theremin_update(float distance1, float distance2) {
