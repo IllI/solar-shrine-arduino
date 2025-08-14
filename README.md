@@ -47,6 +47,18 @@ Arduino IDE → Tools → Manage Libraries:
 
 ---
 
+## 🚨 **TROUBLESHOOTING**
+
+**NewTone Library Compilation Error?** 
+If you get `NewTone.h: No such file or directory` error, see: **[LIBRARY_INSTALLATION_TROUBLESHOOTING.md](LIBRARY_INSTALLATION_TROUBLESHOOTING.md)**
+
+**Quick Fix**: Run the automated script:
+```bash
+./fix_newtone.sh
+```
+
+---
+
 ## 🔊 **Audio Options**
 
 ### **1. Mozzi Theremin (STRONGLY RECOMMENDED)**
@@ -221,6 +233,7 @@ solar-shrine-arduino/
 
 ## 📚 **Documentation**
 
+- **`DIGIQUAD_NETWORK_GUIDE.md`** - Network setup for the four Digiquads (IPs, sACN/Art-Net, TouchDesigner)
 - **`TIMER_AUDIO_GUIDE.md`** - Complete timer audio implementation (with limitations)
 - **`AUDIO_IMPROVEMENTS.md`** - Audio quality research
 - **`AUDIO_RECOMMENDATION.md`** - Audio system recommendations
