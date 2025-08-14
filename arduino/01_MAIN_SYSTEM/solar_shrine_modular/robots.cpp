@@ -1,6 +1,7 @@
 #include "robots.h"
 #include <Arduino.h>
-#include "NewTone.h"
+// NewTone library disabled to prevent timer conflicts with Mozzi
+// #include "NewTone.h"
 #include <math.h>
 
 static const int AUDIO_PIN = 12;
@@ -19,15 +20,18 @@ static const int MIN_FREQ = 120;
 static const int MAX_FREQ = 900;
 
 void robots_setup() {
-  pinMode(AUDIO_PIN, OUTPUT);
-  noNewTone(AUDIO_PIN);
+  // Pin 12 control disabled when Mozzi (alien effect) is active
+  // pinMode(AUDIO_PIN, OUTPUT);
+  // NewTone disabled - no audio initialization needed for robots when using Mozzi
+  // noNewTone(AUDIO_PIN);
   baseFrequency = 300;
   formantPhase = 0.0f;
   lastMs = millis();
 }
 
 void robots_disable() {
-  noNewTone(AUDIO_PIN);
+  // NewTone disabled - no audio cleanup needed for robots when using Mozzi
+  // noNewTone(AUDIO_PIN);
 }
 
 void robots_update(float distanceLeft, float distanceRight) {
@@ -40,7 +44,8 @@ void robots_update(float distanceLeft, float distanceRight) {
 
   // If no hands, output absolute silence
   if (!pitchActive && !voiceActive) {
-    noNewTone(AUDIO_PIN);
+    // NewTone disabled - no audio cleanup needed
+    // noNewTone(AUDIO_PIN);
     return;
   }
 
@@ -60,7 +65,8 @@ void robots_update(float distanceLeft, float distanceRight) {
   // Detune second oscillator by small ratio and modulate via AM
   int detune = (int)(baseFrequency * 0.06f); // 6% detune
   int voicedFreq = baseFrequency + (int)(detune * am);
-  NewTone(AUDIO_PIN, voicedFreq);
+  // NewTone disabled - robots effect not used when Mozzi alien effect is active
+  // NewTone(AUDIO_PIN, voicedFreq);
 
   // Simple envelope from AM depth for LED intensity
   uint8_t lvl = (uint8_t)(am * 255.0f);

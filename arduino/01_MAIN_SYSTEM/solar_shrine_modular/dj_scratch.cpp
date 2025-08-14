@@ -15,24 +15,26 @@ static const int MIN_CM = 5;
 static const int MAX_CM = 50;
 
 void dj_scratch_setup() {
-  pinMode(12, OUTPUT);  // Use pin 12 for Timer1 PWM on Mega
+  // Pin 12 and Timer1 control disabled when Mozzi (alien effect) is active
+  // pinMode(12, OUTPUT);  // Use pin 12 for Timer1 PWM on Mega
   
-  // Timer1 PWM - configured for OC1B (pin 12)
-  TCCR1A = _BV(COM1B1) | _BV(WGM11); // Non-inverting mode on OC1B
-  TCCR1B = _BV(WGM13) | _BV(CS10);    // Fast PWM, no prescaler
-  ICR1 = 399;                         // 16MHz / (399 + 1) = 40kHz
-  OCR1B = ICR1 / 2;                   // 50% duty cycle (silence)
+  // Timer1 PWM - disabled to avoid conflict with Mozzi
+  // TCCR1A = _BV(COM1B1) | _BV(WGM11); // Non-inverting mode on OC1B
+  // TCCR1B = _BV(WGM13) | _BV(CS10);    // Fast PWM, no prescaler
+  // ICR1 = 399;                         // 16MHz / (399 + 1) = 40kHz
+  // OCR1B = ICR1 / 2;                   // 50% duty cycle (silence)
   TIMSK1 = _BV(OCIE1B);               // Enable Timer1 Compare B interrupt
 }
 
 void dj_scratch_disable() {
     TIMSK1 &= ~_BV(OCIE1B); // Disable Timer1 interrupt
     playState = 0;
-    OCR1B = ICR1 / 2; // Set to silence
+    // Timer1 and pin 12 control disabled when Mozzi is active
+    // OCR1B = ICR1 / 2; // Set to silence
     // Fully release Timer1 and pin 12 so other effects can drive AUDIO_PIN 12
-    TCCR1A = 0;
-    TCCR1B = 0;
-    pinMode(12, INPUT); // tri-state
+    // TCCR1A = 0;
+    // TCCR1B = 0;
+    // pinMode(12, INPUT); // tri-state
 }
 
 ISR(TIMER1_COMPB_vect) {

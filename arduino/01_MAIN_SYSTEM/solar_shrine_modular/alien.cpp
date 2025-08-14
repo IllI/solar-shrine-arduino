@@ -2,17 +2,9 @@
 #include "alien.h"
 #include <Arduino.h>
 
-// Configure Mozzi for single-pin PWM on pin 12 (avoiding pin 11 sensor conflict)
-#define MOZZI_AUDIO_MODE MOZZI_OUTPUT_PWM
-#define MOZZI_AUDIO_PIN_1 12
-#define MOZZI_AUDIO_PIN_1_REGISTER OCR1B
-// Push PWM carrier to 62.5kHz to reduce audible whine
-// PWM rate must be equal to or 2x MOZZI_AUDIO_RATE on AVR
-#undef MOZZI_PWM_RATE
-#define MOZZI_PWM_RATE 32768
-#define CONTROL_RATE 128
-#warning "[Solar Shrine] Using modified Mozzi library with pin 12 default"
-#include <MozziGuts.h>
+// Mozzi configuration is now handled at the sketch level in solar_shrine_modular.ino
+// This ensures proper pin 12 configuration before any Mozzi includes
+// Only include Mozzi classes, not MozziGuts.h (to avoid multiple definitions)
 #include <Oscil.h>
 #include <RollingAverage.h>
 #include <tables/sin2048_int8.h>
@@ -23,9 +15,9 @@
 // Enable quick audio path diagnostic (set to 1 to force a constant test tone)
 #define ALIEN_TEST_TONE 0
 
-// Oscillators
-static Oscil<SIN2048_NUM_CELLS, AUDIO_RATE> osc(SIN2048_DATA);
-static Oscil<SIN2048_NUM_CELLS, AUDIO_RATE> oscHarm(SIN2048_DATA);
+// Oscillators - use MOZZI_AUDIO_RATE instead of AUDIO_RATE for modular system
+static Oscil<SIN2048_NUM_CELLS, MOZZI_AUDIO_RATE> osc(SIN2048_DATA);
+static Oscil<SIN2048_NUM_CELLS, MOZZI_AUDIO_RATE> oscHarm(SIN2048_DATA);
 static Oscil<COS2048_NUM_CELLS, CONTROL_RATE> vibrato(COS2048_DATA);
 
 // Smoothing
@@ -70,10 +62,7 @@ static const int RIGHT_TRIG_PIN = 5;  // right (pitch) trigger
 static const int RIGHT_ECHO_PIN = 6;  // right (pitch) echo
 
 void alien_setup() {
-  // Initialize Mozzi once and leave it running to avoid PWM instability
-  startMozzi(CONTROL_RATE);
-  
-  // Initialize oscillators
+  // Mozzi is started at the sketch level, just initialize oscillators
   osc.setFreq(220);
   oscHarm.setFreq(440);
   vibrato.setFreq(vibratoRate);
@@ -105,12 +94,12 @@ void alien_update(float distanceLeft, float distanceRight) {
   if (!rightPresent && !leftPresent) {
     smoothVol = 0;
     echoMix = 0.0f;
-    // Ensure the physical pin is muted when idle
-    pinMode(MOZZI_AUDIO_PIN_1, INPUT);
+    // Ensure the physical pin is muted when idle for true silence
+    pinMode(12, INPUT);
     return;
   } else {
     // Hands present: ensure PWM output is enabled again
-    pinMode(MOZZI_AUDIO_PIN_1, OUTPUT);
+    pinMode(12, OUTPUT);
   }
 
   // Volume mapping (left hand primary, right-hand fallback)
@@ -195,82 +184,68 @@ bool alien_is_test_tone_enabled() {
 #endif
 }
 
-// Mozzi audio callback
-int updateAudio() {
+// Internal audio callback for alien effect
+int alien_internal_updateAudio() {
 #if ALIEN_TEST_TONE
-  // Force a steady tone to validate PWM pin 12 audio path
-  smoothVol = 220;
+  // Simple test tone matching working alien_sound_effect.ino pattern
   osc.setFreq(440);
-  int s = (osc.next() * smoothVol) >> 8;
-  if (s > 127) s = 127; if (s < -128) s = -128;
-  return s;
+  smoothVol = 200;  // Fixed volume for test
+  int testSample = (osc.next() * smoothVol) >> 8;
+  
+  // Apply same clipping as working sketch
+  if (testSample > 127) testSample = 127;
+  if (testSample < -128) testSample = -128;
+  
+  return testSample;
 #endif
   // If muted, output silence
   if (smoothVol <= 0) {
     return 0;
   }
 
+  // Safety check: ensure smoothVol is in valid range
+  if (smoothVol > 255) smoothVol = 255;
+  
+  // Generate basic sine wave like the working alien_sound_effect.ino
   int baseSample = (osc.next() * smoothVol) >> 8;
-  int harmSample = (oscHarm.next() * smoothVol) >> 8;
-  int combined = baseSample + ((harmSample * harmMix) >> 8);
-
-  // Low-pass tone (restore smoothing to reduce buzz)
-  lpfState = lpfState + (((combined - lpfState) * lpfAlpha) >> 8);
-  int filtered = lpfState;
-
-  // Echo processing (match alien_sound_effect.ino)
-  int echoPos = (echoIndex - echoDelay + ECHO_BUFFER_SIZE) % ECHO_BUFFER_SIZE;
-  int echoSample = echoBuffer[echoPos];
-  int mixed = filtered + (int)(echoSample * echoMix);
-  echoBuffer[echoIndex] = filtered;
-  echoIndex++; if (echoIndex >= ECHO_BUFFER_SIZE) echoIndex = 0;
-  if (mixed > 127) mixed = 127; if (mixed < -128) mixed = -128;
-  // Return plain int like the working alien_sound_effect.ino
-  return mixed;
+  
+  // Safety clipping to prevent overflow
+  if (baseSample > 127) baseSample = 127;
+  if (baseSample < -128) baseSample = -128;
+  
+  // For now, return just the basic sample to avoid complex synthesis issues
+  return baseSample;
 }
 
-// Mozzi control-rate callback (required). We drive parameters from alien_update().
-void updateControl() {
-  // Read sensors (microseconds); brief pulses and modest timeouts to keep ISR fed
-  auto pulseRead = [](int trig, int echo, unsigned long timeoutUs) -> unsigned long {
-    digitalWrite(trig, LOW); delayMicroseconds(2);
-    digitalWrite(trig, HIGH); delayMicroseconds(10);
-    digitalWrite(trig, LOW);
-    return pulseIn(echo, HIGH, timeoutUs);
-  };
-
-  const unsigned long VOL_TIMEOUT = 8000UL;
-  const unsigned long PITCH_TIMEOUT = 8000UL;
-
-  // Alternate sensor reads each control tick to avoid long blocking
-  static bool readPitchNext = true;
-  static unsigned long lastPitchDur = 0;
-  static unsigned long lastVolDur = 0;
-  if (readPitchNext) {
-    lastPitchDur = pulseRead(RIGHT_TRIG_PIN, RIGHT_ECHO_PIN, PITCH_TIMEOUT);
-  } else {
-    lastVolDur = pulseRead(LEFT_TRIG_PIN, LEFT_ECHO_PIN, VOL_TIMEOUT);
-  }
-  readPitchNext = !readPitchNext;
-
-  unsigned long pitchDur = lastPitchDur;
-  unsigned long volDur   = lastVolDur;
-
-  // Detect presence
-  bool rightPresent = (pitchDur >= 5);
-  bool leftPresent  = (volDur   >= 5);
+// Internal control-rate callback for alien effect
+void alien_internal_updateControl() {
+  // Simple test: set a fixed frequency and volume for now
+  osc.setFreq(440);  // A4 note
+  smoothVol = 200;   // Fixed moderate volume
+  
+  // For now, skip complex synthesis to get basic sound working
+  return;
+  
+  // Use the distances already calculated by the main loop
+  // Convert from cm to microsecond-like values to match original alien_sound_effect.ino
+  float leftCm = lastLeft;
+  float rightCm = lastRight;
+  
+  // Detect presence (main loop already handles this, but we need local logic)
+  bool rightPresent = (rightCm >= 5.0f && rightCm <= 50.0f);
+  bool leftPresent = (leftCm >= 5.0f && leftCm <= 50.0f);
 
   if (!rightPresent && !leftPresent) {
     smoothVol = 0;
     echoMix = 0.0f;
-    lastLeft = 999.0f; lastRight = 999.0f;
-    // Ensure the physical pin is muted when idle
-    pinMode(MOZZI_AUDIO_PIN_1, INPUT);
     return;
-  } else {
-    // Hands present: ensure PWM output is enabled again
-    pinMode(MOZZI_AUDIO_PIN_1, OUTPUT);
   }
+
+  // Convert distances to microsecond-like values for synthesis compatibility
+  unsigned long pitchDur = (unsigned long)(rightCm * 6.0f);  // approximate conversion
+  unsigned long volDur = (unsigned long)(leftCm * 6.0f);
+
+  // Update synthesis parameters based on sensor readings
 
   // Map pitch distance to frequency (similar to working sketch):
   const int lowestFreq = 131;

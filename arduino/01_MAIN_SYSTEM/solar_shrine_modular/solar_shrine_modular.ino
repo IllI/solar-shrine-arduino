@@ -31,10 +31,34 @@
  * Date: 2024
  */
 
+// =============================================================================
+// TIMER CONFLICT RESOLUTION
+// =============================================================================
+// Disable NewTone library to prevent Timer2 conflicts with Mozzi
+#define SOLAR_SHRINE_DISABLE_NEWTONE
+
+// =============================================================================
+// MOZZI AUDIO CONFIGURATION FOR PIN 12
+// =============================================================================
+// Based on https://groups.google.com/g/mozzi-users/c/p3q2QSCcuzU?pli=1
+// Tim Barrass explains how to change from Timer1 OCR1A (pin 11) to OCR1B (pin 12)
+// Force Mozzi to use pin 12 (OCR1B) instead of default pin 11 (OCR1A)
+// Based on Tim Barrass's solution: https://groups.google.com/g/mozzi-users/c/p3q2QSCcuzU?pli=1
+#define MOZZI_AUDIO_MODE MOZZI_OUTPUT_PWM
+#define MOZZI_AUDIO_PIN_1 12
+#define MOZZI_AUDIO_PIN_1_REGISTER OCR1B
+#define MOZZI_AUDIO_RATE 16384
+#define CONTROL_RATE 128
+
 #define FASTLED_FORCE_BITBANG
 #define FASTLED_ALLOW_INTERRUPTS 1
-#include <FastLED.h>
+// #include <FastLED.h>  // Temporarily disabled to test Mozzi
 #include <ArduinoJson.h>
+#include <MozziGuts.h>
+#include <Oscil.h>
+#include <RollingAverage.h>
+#include <tables/sin2048_int8.h>
+#include <tables/cos2048_int8.h>
 #include "dj_scratch.h"
 #include "theremin.h"
 #include "alien.h"
@@ -81,8 +105,8 @@ const unsigned long INTERACTIVE_TIMEOUT = 10000; // 10s no hands -> back to attr
 const unsigned long EFFECT_SWITCH_TIMEOUT = 5000; // 5s no hands -> rotate effect
 // Effect rotation settings
 // Testing flags
- const bool TEST_ALIEN_ONLY = false; // Allow all effects
- const bool DISABLE_EFFECT_ROTATION = false; // Enable rotation after timeout when no hands
+ const bool TEST_ALIEN_ONLY = true; // Force ALIEN-only for testing
+ const bool DISABLE_EFFECT_ROTATION = true; // Disable rotation while testing ALIEN
  const bool TEST_VERBOSE = false; // When true, allow non-JSON serial prints
 
 
@@ -128,13 +152,16 @@ void setup(){
   pinMode(trigPin2, OUTPUT);
   pinMode(echoPin2, INPUT);
 
-  // FastLED setup
-  FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
-  FastLED.setBrightness(150);
+  // FastLED setup - TEMPORARILY DISABLED FOR MOZZI TESTING
+  // FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
+  // FastLED.setBrightness(150);
   
   // Initialize all LEDs to off
-  fill_solid(leds, NUM_LEDS, CRGB::Black);
-  FastLED.show();
+  // fill_solid(leds, NUM_LEDS, CRGB::Black);
+  // FastLED.show();
+  
+  // Start Mozzi audio engine (required for ALIEN effect)
+  startMozzi(CONTROL_RATE);
   Serial.begin(9600);
   // Initialize sample arrays
   for (int i = 0; i < SAMPLES; i++) {
@@ -334,7 +361,7 @@ void updateLEDs(float avgDistance1, float avgDistance2, bool inRange1, bool inRa
     }
   }
   
-  FastLED.show();
+  // FastLED.show();  // Disabled for Mozzi testing
 }
 
 // =============================================
@@ -389,7 +416,7 @@ static void updateDJLedVisual(float dLeft, float dRight) {
     leds[idx] = col;
   }
 
-  FastLED.show();
+  // FastLED.show();  // Disabled for Mozzi testing
 }
 
 // =============================================
@@ -525,7 +552,7 @@ static void updateAlienLedVisual(float dLeft, float dRight) {
     leds[i] = (val > 6) ? CRGB(val, val, val) : CRGB::Black;
   }
 
-  FastLED.show();
+  // FastLED.show();  // Disabled for Mozzi testing
 }
 
 // =============================================
@@ -627,7 +654,7 @@ static void updateThereminLedVisual(float dLeft, float dRight) {
     leds[i] = col;
   }
 
-  FastLED.show();
+  // FastLED.show();  // Disabled for Mozzi testing
 }
 // Direct sensor reading with HC-SR04 reset fix (replaces NewPing)
 float readDistanceWithReset(int trigPin, int echoPin) {
@@ -702,11 +729,7 @@ float getAveragedDistance(float samples[]) {
 void loop() {
   unsigned long currentTime = millis();
   unsigned long sinceLastHand = currentTime - lastHandDetectedTime;
-  // Give Mozzi priority to keep the audio buffer filled during ALIEN
-  if (currentEffect == ALIEN) {
-    // Follow Mozzi pattern: call hook once per loop
-    alien_audio_hook();
-  }
+  // Mozzi handles audio automatically via hardware timers - no manual calls needed
   
   // Read sensors (alternate per loop when ALIEN is active to reduce blocking)
   static float lastDistance1 = MAX_RANGE + 10;
@@ -796,10 +819,8 @@ void loop() {
 
   // Update the current effect only if hands detected; otherwise ensure silence
   if (handsDetected) {
-    // For ALIEN, updateControl() handles sensing; avoid double work
-    if (currentEffect != ALIEN) {
-      effect_update(currentEffect, distance1, distance2);
-    }
+    // Always call effect_update to pass current sensor data to the effect
+    effect_update(currentEffect, distance1, distance2);
     // DJ LED visual
     if (currentEffect == DJ_SCRATCH && currentMode == INTERACTIVE_MODE) {
       updateDJLedVisual(distance1, distance2);
@@ -838,7 +859,7 @@ void loop() {
         if (idx != 0xFFFF) { uint8_t b = (lvl < 32) ? 32 : lvl; CRGB c = gold; c.nscale8_video(b); leds[idx] = c; }
       }
 
-      FastLED.show();
+      // FastLED.show();  // Disabled for Mozzi testing
     }
   } else {
     audio_all_off();
@@ -898,8 +919,26 @@ void loop() {
     lastJsonMs = nowMs;
   }
 
-  // Keep loop cooperative when not ALIEN
-  if (currentEffect != ALIEN) {
-    delay(20);
+  // Mozzi's audioHook() is called automatically by hardware timers - do not call manually!
+}
+
+// =============================================================================
+// MOZZI AUDIO CALLBACKS (Required when ALIEN effect is active)
+// =============================================================================
+
+void updateControl() {
+  // Delegate to alien effect when active
+  if (currentEffect == ALIEN) {
+    extern void alien_internal_updateControl();
+    alien_internal_updateControl();
   }
+}
+
+int updateAudio() {
+  // Use exact same pattern as working alien_sound_effect.ino
+  if (currentEffect == ALIEN) {
+    extern int alien_internal_updateAudio();
+    return alien_internal_updateAudio();
+  }
+  return 0; // Silence when not using ALIEN
 }

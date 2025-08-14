@@ -1,5 +1,6 @@
 #include "theremin.h"
-#include "NewTone.h"
+// NewTone library disabled to prevent timer conflicts with Mozzi
+// #include "NewTone.h"
 
 const int AUDIO_PIN = 12;
 
@@ -15,7 +16,8 @@ void theremin_setup() {
 }
 
 void theremin_disable() {
-  noNewTone(AUDIO_PIN);
+  // NewTone disabled - no audio output needed for theremin when using Mozzi
+  // noNewTone(AUDIO_PIN);
 #if TEST_VERBOSE
   Serial.println(F("Theremin effect disabled."));
 #endif
@@ -25,12 +27,15 @@ void theremin_update(float distance1, float distance2) {
     bool handInRange1 = (distance1 >= MIN_RANGE_THEREMIN && distance1 <= MAX_RANGE_THEREMIN);
     bool handInRange2 = (distance2 >= MIN_RANGE_THEREMIN && distance2 <= MAX_RANGE_THEREMIN);
     if (handInRange2) {
-        int frequency = map(distance2, MIN_RANGE_THEREMIN, MAX_RANGE_THEREMIN, 1000, 200);
-        NewTone(AUDIO_PIN, frequency);
+        // NewTone disabled - theremin effect not used when Mozzi alien effect is active
+        // int frequency = map(distance2, MIN_RANGE_THEREMIN, MAX_RANGE_THEREMIN, 1000, 200);
+        // NewTone(AUDIO_PIN, frequency);
     } else if (handInRange1) { // Fallback to left hand if right is out of range
-        int frequency = map(distance1, MIN_RANGE_THEREMIN, MAX_RANGE_THEREMIN, 1000, 200);
-        NewTone(AUDIO_PIN, frequency);
+        // NewTone disabled - theremin effect not used when Mozzi alien effect is active
+        // int frequency = map(distance1, MIN_RANGE_THEREMIN, MAX_RANGE_THEREMIN, 1000, 200);
+        // NewTone(AUDIO_PIN, frequency);
     } else {
-        noNewTone(AUDIO_PIN);
+        // NewTone disabled - no audio cleanup needed
+        // noNewTone(AUDIO_PIN);
     }
 }
