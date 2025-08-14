@@ -14,10 +14,12 @@ The **Solar Shrine Modular System** is the main integration hub that combines th
 - ✅ **Modular Architecture**: Clean separation of systems for easy expansion
 
 ### **Audio System**
+- **DJ Scratch Audio**: Left hand = Play/Pause, Right hand = Scratch control
 - **Crystal Clear Playback**: 20kHz PWM with 4x amplification
 - **Real-Time Scratching**: Variable speed forward/backward control
 - **Gesture Control**: Hand movements trigger different audio modes
 - **Flash Storage**: 26KB audio stored in PROGMEM (no SD card needed)
+- **Mozzi Integration**: Alien effect uses Mozzi library for synthesis (currently disabled for debugging)
 
 ### **LED System**
 - **Attract Mode**: Yellow↔Red sinusoidal fade (5-second period)
@@ -65,10 +67,23 @@ The **Solar Shrine Modular System** is the main integration hub that combines th
 - Rotation cycles through `dj_scratch → alien → robots → mini_theremin` whenever no hands are detected for 5 seconds.
 - Rotation resumes after returning to attract mode.
 - You can change the rotation order in `nextEffect(...)` inside `solar_shrine_modular.ino`.
+- **Current Status**: Only DJ Scratch audio is enabled. Other effects' audio is disabled for debugging.
+
+### **Audio Status**
+- ✅ **DJ Scratch**: Fully functional with audio and LED effects
+- ⏸️ **Alien**: LED effects only (Mozzi audio disabled for debugging)
+- ⏸️ **Robots**: LED effects only (NewTone audio disabled for debugging)  
+- ⏸️ **Mini Theremin**: LED effects only (Mozzi audio disabled for debugging)
 
 ### **Testing Flags**
 - `DISABLE_EFFECT_ROTATION` (bool): set to `false` to enable rotation (default now).
 - `TEST_ALIEN_ONLY` (bool): when `true`, locks to the Alien effect for audio testing. Default is `false`.
+
+### **Recent Changes**
+- **2024-12-19**: Simplified Mozzi synthesis to match working patterns from `robots_talking.ino` and `minimin_theremin_test.ino`
+- **2024-12-19**: Disabled audio for Alien, Robots, and Mini Theremin effects for debugging
+- **2024-12-19**: Restored auto-rotation and LED effects for all modes
+- **2024-12-19**: Only DJ Scratch audio remains enabled for testing
 
 ## 📊 **System Architecture**
 

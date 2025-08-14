@@ -206,109 +206,47 @@ int alien_internal_updateAudio() {
   // Safety check: ensure smoothVol is in valid range
   if (smoothVol > 255) smoothVol = 255;
   
-  // Generate basic sine wave like the working alien_sound_effect.ino
-  int baseSample = (osc.next() * smoothVol) >> 8;
+  // Simple, clean Mozzi synthesis like the working sketches
   
-  // Safety clipping to prevent overflow
-  if (baseSample > 127) baseSample = 127;
-  if (baseSample < -128) baseSample = -128;
+  // Generate pure sine wave sample
+  int sample = (osc.next() * smoothVol) >> 8;
   
-  // For now, return just the basic sample to avoid complex synthesis issues
-  return baseSample;
+  // Return clean sample without complex processing
+  return sample;
 }
 
 // Internal control-rate callback for alien effect
 void alien_internal_updateControl() {
-  // Simple test: set a fixed frequency and volume for now
-  osc.setFreq(440);  // A4 note
-  smoothVol = 200;   // Fixed moderate volume
-  
-  // For now, skip complex synthesis to get basic sound working
-  return;
-  
   // Use the distances already calculated by the main loop
-  // Convert from cm to microsecond-like values to match original alien_sound_effect.ino
   float leftCm = lastLeft;
   float rightCm = lastRight;
   
-  // Detect presence (main loop already handles this, but we need local logic)
+  // Detect presence (5-50cm range)
   bool rightPresent = (rightCm >= 5.0f && rightCm <= 50.0f);
   bool leftPresent = (leftCm >= 5.0f && leftCm <= 50.0f);
 
   if (!rightPresent && !leftPresent) {
     smoothVol = 0;
-    echoMix = 0.0f;
     return;
   }
 
-  // Convert distances to microsecond-like values for synthesis compatibility
-  unsigned long pitchDur = (unsigned long)(rightCm * 6.0f);  // approximate conversion
-  unsigned long volDur = (unsigned long)(leftCm * 6.0f);
-
-  // Update synthesis parameters based on sensor readings
-
-  // Map pitch distance to frequency (similar to working sketch):
-  const int lowestFreq = 131;
-  const int highestFreq = 1046;
-  long pitchDistance = rightPresent ? (long)(pitchDur / 6) : 800; // approx cm-like scale
+  // PITCH CONTROL (Right hand) - simple mapping like working sketches
+  int freq = 440; // default
   if (rightPresent) {
-    if (pitchDistance < 30) pitchDistance = 30; if (pitchDistance > 800) pitchDistance = 800;
-    int freq = map((int)pitchDistance, 30, 800, highestFreq, lowestFreq);
-    baseFreq = pAverage.next(freq);
+    // Map 5-50cm to frequency range (closer = higher pitch)
+    freq = map((int)rightCm, 5, 50, 1046, 131); // C6 to C3 range
   }
+  osc.setFreq(freq);
 
-  // Volume mapping (left hand primary, right-hand fallback)
-  int linearVol = 0; // 0..255
+  // VOLUME CONTROL (Left hand) - simple mapping like working sketches
+  int vol = 0;
   if (leftPresent) {
-    long volDistance = (long)(volDur / 6);
-    if (volDistance < 30) volDistance = 30; if (volDistance > 800) volDistance = 800;
-    int v = map((int)volDistance, 30, 800, 255, 0);
-    // logarithmic feel
-    float n = v / 255.0f; v = (int)(n * n * 255.0f);
-    linearVol = v;
+    // Map 5-50cm to volume (closer = louder)
+    vol = map((int)leftCm, 5, 50, 255, 60);
   } else if (rightPresent) {
-    int pd = (int)constrain(pitchDistance, 30, 800);
-    linearVol = map(pd, 30, 800, 160, 40); // modest solo floor
+    // Right hand solo - quieter fallback
+    vol = map((int)rightCm, 5, 50, 160, 40);
   }
-  int volSm = vAverage.next(linearVol);
-  smoothVol = (smoothVol * 3 + volSm) >> 2;
-  if (smoothVol < 0) smoothVol = 0; if (smoothVol > 255) smoothVol = 255;
-
-  // Motion-derived vibrato and harmonics
-  static long prevPd = -1, prevVd = -1;
-  long pdNow = pitchDistance;
-  long vdNow = leftPresent ? (long)(volDur / 6) : 800;
-  float pitchVelNorm = (prevPd >= 0) ? min(1.0f, fabsf(pdNow - prevPd) / 80.0f) : 0.0f;
-  float volVelNorm   = (prevVd >= 0) ? min(1.0f, fabsf(vdNow - prevVd) / 80.0f)   : 0.0f;
-  prevPd = pdNow; prevVd = vdNow;
-
-  float normalizedVol = smoothVol / 255.0f;
-  float baselineDepth = 0.01f + (normalizedVol * 0.07f);
-  float motionDepth   = pitchVelNorm * 0.03f;
-  vibratoDepth = min(0.15f, baselineDepth + motionDepth);
-  vibratoRate  = 4.0f + (volVelNorm * 6.0f); if (vibratoRate > 10.0f) vibratoRate = 10.0f;
-  vibrato.setFreq(vibratoRate);
-
-  // Apply vibrato
-  float vibAmount = vibrato.next() * vibratoDepth;
-  int modFreq = baseFreq + (int)(baseFreq * vibAmount);
-  if (modFreq < lowestFreq) modFreq = lowestFreq; if (modFreq > highestFreq) modFreq = highestFreq;
-  osc.setFreq(modFreq);
-
-  // Harmonics and tone
-  harmMix = (int)(pitchVelNorm * 160.0f);
-  int harmFreq = modFreq * 2; if (harmFreq > 3000) harmFreq = 3000; oscHarm.setFreq(harmFreq);
-
-  // Echo/tone params derived from pitchDistance
-  int pd = (int)constrain(pitchDistance, 30, 800);
-  echoMix = 0.10f + (normalizedVol * 0.35f);
-  echoDelay = map(pd, 30, 800, 80, ECHO_BUFFER_SIZE - 1);
-  lpfAlpha = map(pd, 30, 800, 230, 40); lpfAlpha = constrain(lpfAlpha, 40, 230);
-
-  // Expose last distances as cm-like values for debug
-  lastRight = (float)pdNow; lastLeft = (float)vdNow;
-
-  // Ensure audio pin stays configured for Mozzi PWM while ALIEN is active
+  
+  smoothVol = vol;
 }
-
-// audioOutput() function not needed - Mozzi's PWM mode handles output automatically

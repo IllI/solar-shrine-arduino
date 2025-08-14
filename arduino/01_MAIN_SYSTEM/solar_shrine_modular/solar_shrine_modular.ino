@@ -105,8 +105,8 @@ const unsigned long INTERACTIVE_TIMEOUT = 10000; // 10s no hands -> back to attr
 const unsigned long EFFECT_SWITCH_TIMEOUT = 5000; // 5s no hands -> rotate effect
 // Effect rotation settings
 // Testing flags
- const bool TEST_ALIEN_ONLY = true; // Force ALIEN-only for testing
- const bool DISABLE_EFFECT_ROTATION = true; // Disable rotation while testing ALIEN
+ const bool TEST_ALIEN_ONLY = false; // Force ALIEN-only for testing
+ const bool DISABLE_EFFECT_ROTATION = false; // Disable rotation while testing ALIEN
  const bool TEST_VERBOSE = false; // When true, allow non-JSON serial prints
 
 
@@ -152,13 +152,13 @@ void setup(){
   pinMode(trigPin2, OUTPUT);
   pinMode(echoPin2, INPUT);
 
-  // FastLED setup - TEMPORARILY DISABLED FOR MOZZI TESTING
-  // FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
-  // FastLED.setBrightness(150);
+  // FastLED setup - RESTORED FOR LED EFFECTS
+  FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
+  FastLED.setBrightness(150);
   
   // Initialize all LEDs to off
-  // fill_solid(leds, NUM_LEDS, CRGB::Black);
-  // FastLED.show();
+  fill_solid(leds, NUM_LEDS, CRGB::Black);
+  FastLED.show();
   
   // Start Mozzi audio engine (required for ALIEN effect)
   startMozzi(CONTROL_RATE);
@@ -361,7 +361,7 @@ void updateLEDs(float avgDistance1, float avgDistance2, bool inRange1, bool inRa
     }
   }
   
-  // FastLED.show();  // Disabled for Mozzi testing
+  FastLED.show();  // Restored for LED effects
 }
 
 // =============================================
@@ -416,7 +416,7 @@ static void updateDJLedVisual(float dLeft, float dRight) {
     leds[idx] = col;
   }
 
-  // FastLED.show();  // Disabled for Mozzi testing
+  FastLED.show();  // Restored for LED effects
 }
 
 // =============================================
@@ -552,7 +552,7 @@ static void updateAlienLedVisual(float dLeft, float dRight) {
     leds[i] = (val > 6) ? CRGB(val, val, val) : CRGB::Black;
   }
 
-  // FastLED.show();  // Disabled for Mozzi testing
+  FastLED.show();  // Restored for LED effects
 }
 
 // =============================================
@@ -654,7 +654,7 @@ static void updateThereminLedVisual(float dLeft, float dRight) {
     leds[i] = col;
   }
 
-  // FastLED.show();  // Disabled for Mozzi testing
+  FastLED.show();  // Restored for LED effects
 }
 // Direct sensor reading with HC-SR04 reset fix (replaces NewPing)
 float readDistanceWithReset(int trigPin, int echoPin) {
@@ -819,8 +819,13 @@ void loop() {
 
   // Update the current effect only if hands detected; otherwise ensure silence
   if (handsDetected) {
-    // Always call effect_update to pass current sensor data to the effect
-    effect_update(currentEffect, distance1, distance2);
+    // Only DJ Scratch has audio enabled - other effects are audio-disabled for debugging
+    if (currentEffect == DJ_SCRATCH) {
+      effect_update(currentEffect, distance1, distance2);
+    } else {
+      // For non-DJ effects, only update LED visuals, skip audio
+      // effect_update(currentEffect, distance1, distance2); // Audio disabled
+    }
     // DJ LED visual
     if (currentEffect == DJ_SCRATCH && currentMode == INTERACTIVE_MODE) {
       updateDJLedVisual(distance1, distance2);
@@ -859,7 +864,7 @@ void loop() {
         if (idx != 0xFFFF) { uint8_t b = (lvl < 32) ? 32 : lvl; CRGB c = gold; c.nscale8_video(b); leds[idx] = c; }
       }
 
-      // FastLED.show();  // Disabled for Mozzi testing
+      FastLED.show();  // Restored for LED effects
     }
   } else {
     audio_all_off();
@@ -867,11 +872,11 @@ void loop() {
     if (prevHandsDetected && !handsDetected) {
       effect_disable(currentEffect);
     }
-    // Explicitly hard-mute Mozzi-based ALIEN on hands removed
+    // Audio disabled for all effects except DJ Scratch for debugging
+    // Explicitly hard-mute Mozzi-based ALIEN on hands removed (currently disabled)
     if (currentEffect == ALIEN) {
-      // Signal ALIEN to mute immediately
-      extern void alien_update(float, float);
-      alien_update(999.0f, 999.0f); // will cause smoothVol=0 via presence logic
+      // extern void alien_update(float, float);
+      // alien_update(999.0f, 999.0f); // will cause smoothVol=0 via presence logic (Audio disabled)
     }
   }
 
@@ -927,18 +932,20 @@ void loop() {
 // =============================================================================
 
 void updateControl() {
-  // Delegate to alien effect when active
+  // Audio disabled for all effects except DJ Scratch for debugging
+  // Delegate to alien effect when active (currently disabled)
   if (currentEffect == ALIEN) {
-    extern void alien_internal_updateControl();
-    alien_internal_updateControl();
+    // extern void alien_internal_updateControl();
+    // alien_internal_updateControl(); // Audio disabled
   }
 }
 
 int updateAudio() {
-  // Use exact same pattern as working alien_sound_effect.ino
+  // Audio disabled for all effects except DJ Scratch for debugging
+  // Use exact same pattern as working alien_sound_effect.ino (currently disabled)
   if (currentEffect == ALIEN) {
-    extern int alien_internal_updateAudio();
-    return alien_internal_updateAudio();
+    // extern int alien_internal_updateAudio();
+    // return alien_internal_updateAudio(); // Audio disabled
   }
   return 0; // Silence when not using ALIEN
 }
