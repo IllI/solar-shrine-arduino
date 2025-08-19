@@ -1,389 +1,403 @@
-/****************************************************************************
- * Sound Test: Alien, Robots, and Theremin - Sensor Reactive
- *
- * This sketch cycles between three sound effects every 5 seconds:
- * 1. ALIEN: Sensor-reactive vibrato with hand proximity control
- * 2. ROBOTS: Hand-controlled robotic speech patterns
- * 3. THEREMIN: Sensor-controlled theremin with C Minor Pentatonic scale
- *
- * Uses HC-SR04 sensors for hand detection and audio modulation.
- * Based on solar_shrine_modular.ino sensor logic.
-****************************************************************************/
-
-#define MOZZI_AUDIO_MODE MOZZI_OUTPUT_2PIN_PWM
-#include <MozziGuts.h>
-#include <Oscil.h>
-#include <RollingAverage.h>
-#include <tables/sin2048_int8.h>
-#include <tables/cos2048_int8.h>
-#include <tables/triangle_valve_2048_int8.h>
+/*
+ * Modular Audio Effect System - DJ Scratch + Mozzi Alien Effect
+ * Completely separate audio methodologies:
+ * - DJ Scratch: Timer1 PWM + ISR for PROGMEM audio playback
+ * - Alien Effect: Mozzi library with proper audioHook() integration
+ * 
+ * Toggles between effects every 5 seconds with complete audio system isolation
+ */
 
 // =============================================================================
-// SENSOR CONFIGURATION (from solar_shrine_modular.ino)
+// AUDIO MODE SELECTION - Only one can be active at a time
 // =============================================================================
+enum AudioMode {
+  MODE_DJ_SCRATCH = 0,
+  MODE_MOZZI_ALIEN = 1
+};
 
-// Pin assignments for HC-SR04 sensors
-// Left sensor (Pitch)
-const int trigPin1 = 10;
-const int echoPin1 = 8;
-// Right sensor (Volume)
-const int trigPin2 = 5;
-const int echoPin2 = 6;
+volatile AudioMode currentMode = MODE_DJ_SCRATCH;
+unsigned long lastModeChange = 0;
+const unsigned long MODE_DURATION = 5000; // 5 seconds per mode
 
-// Distance-based detection constants (in cm)
-const float MIN_RANGE = 5.0;
-const float MAX_RANGE = 50.0;
-const unsigned long SENSOR_TIMEOUT = 12000;
+// =============================================================================
+// SENSOR SYSTEM (Shared between both modes)
+// =============================================================================
+#define TRIG1 10  // Left sensor trigger
+#define ECHO1 8   // Left sensor echo  
+#define TRIG2 5   // Right sensor trigger
+#define ECHO2 6   // Right sensor echo
 
-// Hand detection averaging
-const int SAMPLES = 5;
-float distance1Samples[SAMPLES];
-float distance2Samples[SAMPLES];
-int sampleIndex = 0;
-bool samplesInitialized = false;
-// Robot effect variables and functions moved inline to avoid header conflicts
-Oscil <SIN2048_NUM_CELLS, AUDIO_RATE> robotOsc(SIN2048_DATA);
-const int robotPitchPattern[] = {220, 330, 440, 550, 660, 770, 880, 990};
-const int ROBOT_PITCH_PATTERN_LENGTH = sizeof(robotPitchPattern) / sizeof(int);
-int currentRobotPitchIndex = 0;
-unsigned long lastRobotPitchChangeTime = 0;
-const unsigned long ROBOT_NOTE_DURATION = 100;
-unsigned long lastRobotChange = 0;
-int robotPatternIndex = 0;
+// =============================================================================
+// DJ SCRATCH SYSTEM (Timer1 + ISR + PROGMEM)
+// =============================================================================
+#include <avr/pgmspace.h>
+#include "whileDancing_medium_data.h"
 
-// Sensor state variables
-float avgDistance1 = MAX_RANGE + 10;
-float avgDistance2 = MAX_RANGE + 10;
-bool inRange1 = false;
-bool inRange2 = false;
-bool handsDetected = false;
+// DJ Scratch pins and state
+#define AUDIO_PIN_DJ 12  // Timer1 OC1B output
+volatile int32_t sampleIndex = 0;
+volatile uint8_t sampleCounter = 0;
+volatile uint8_t playState = 1;  // Start playing immediately
+volatile uint8_t playbackSpeed = 5;
+volatile int8_t scratchSpeed = 1;
+volatile bool isScratchMode = false;
 
-void updateRobots() {
-  // Cycle through the pitch pattern every 150ms to create the "talking" effect
-  if (millis() - lastRobotPitchChangeTime > 150) {
-    lastRobotPitchChangeTime = millis();
-    currentRobotPitchIndex = (currentRobotPitchIndex + 1) % ROBOT_PITCH_PATTERN_LENGTH;
-    robotOsc.setFreq(robotPitchPattern[currentRobotPitchIndex]);
+// DJ Scratch Timer1 ISR
+ISR(TIMER1_COMPB_vect) {
+  if (currentMode != MODE_DJ_SCRATCH) {
+    OCR1B = 200; // Silence when not in DJ mode
+    return;
+  }
+  
+  if (playState == 1 && sampleIndex < WHILEDANCING_MEDIUM_DATA_NUM_CELLS) {
+    sampleCounter++;
+    if (sampleCounter >= playbackSpeed) {
+      sampleCounter = 0;
+      
+      // Get sample and convert int8_t to uint8_t (add 128)
+      int8_t rawSample = pgm_read_byte(&WHILEDANCING_MEDIUM_DATA_DATA[sampleIndex]);
+      uint8_t sample = (uint8_t)(rawSample + 128);
+      
+      // Apply amplification (same as working DJ scratch)
+      uint16_t amplified = ((uint16_t)sample * 3) / 2;
+      if (amplified > 255) amplified = 255;
+      
+      OCR1B = amplified;
+      
+      if (isScratchMode) {
+        sampleIndex += scratchSpeed;
+        if (sampleIndex < 0) sampleIndex = 0;
+        if (sampleIndex >= WHILEDANCING_MEDIUM_DATA_NUM_CELLS) sampleIndex = WHILEDANCING_MEDIUM_DATA_NUM_CELLS - 1;
+      } else {
+        sampleIndex++;
+      }
+    }
+  } else {
+    OCR1B = 128; // Silence
+    if (sampleIndex >= WHILEDANCING_MEDIUM_DATA_NUM_CELLS) {
+      sampleIndex = 0; // Loop
+    }
   }
 }
 
-int audioOutputRobots() {
-  return robotOsc.next();
+void setupDJScratch() {
+  Serial.println(F("Setting up DJ Scratch mode..."));
+  
+  // Configure Timer1 PWM for DJ scratch (EXACT same as working code)
+  pinMode(AUDIO_PIN_DJ, OUTPUT);
+  TCCR1A = _BV(COM1B1) | _BV(WGM11);  // Clear OC1B on compare match, Fast PWM
+  TCCR1B = _BV(WGM13) | _BV(CS10);    // Fast PWM, no prescaler
+  ICR1 = 399;                         // 20kHz frequency
+  OCR1B = 200;                        // 50% duty cycle (silence)
+  TIMSK1 = _BV(OCIE1B);               // Enable Timer1 Compare B interrupt
+  
+  // Reset DJ scratch state
+  sampleIndex = 0;
+  sampleCounter = 0;
+  playState = 1;
+  playbackSpeed = 5;
+  scratchSpeed = 1;
+  isScratchMode = false;
 }
 
-// --- Variables for ALIEN effect ---
-Oscil <SIN2048_NUM_CELLS, AUDIO_RATE> osc(SIN2048_DATA);
-Oscil <COS2048_NUM_CELLS, CONTROL_RATE> vibrato(COS2048_DATA);
-float vibratoDepth = 0.03;
-float vibratoRate = 5.5;
-int alien_vol = 0;
+void disableDJScratch() {
+  Serial.println(F("Disabling DJ Scratch mode..."));
+  
+  // Disable Timer1 interrupt
+  TIMSK1 &= ~_BV(OCIE1B);
+  
+  // Reset Timer1 to default state
+  TCCR1A = 0;
+  TCCR1B = 0;
+  OCR1B = 0;
+  
+  // Set audio pin to low
+  digitalWrite(AUDIO_PIN_DJ, LOW);
+}
+
+// =============================================================================
+// MOZZI ALIEN SYSTEM (Mozzi Library + audioHook)
+// =============================================================================
+
+// Mozzi configuration - MUST be before MozziGuts.h
+#include <MozziConfigValues.h>
+#define MOZZI_AUDIO_MODE MOZZI_OUTPUT_2PIN_PWM
+
+#include <MozziGuts.h>
+#include <Oscil.h>
+#include <tables/sin2048_int8.h>
 
 #define CONTROL_RATE 128
 
-// --- Variables for THEREMIN effect ---
-Oscil<TRIANGLE_VALVE_2048_NUM_CELLS, AUDIO_RATE> thereminOsc(TRIANGLE_VALVE_2048_DATA);
-RollingAverage<int, 4> pAverage;
-RollingAverage<int, 8> vAverage;
-int averaged;
+// Mozzi oscillators
+Oscil<SIN2048_NUM_CELLS, AUDIO_RATE> alienOsc(SIN2048_DATA);
+Oscil<SIN2048_NUM_CELLS, CONTROL_RATE> vibrato(SIN2048_DATA);
 
-// Theremin sensor pins
-const int volOut = 5;
-const int volIn = 6;
-const int pitchOut = 10;
-const int pitchIn = 7;
+// Alien effect state
+float alienVolume = 0.5;
+float alienPitch = 440.0;
+float vibratoRate = 6.5;
 
-// Theremin thresholds
-const int pitchLowThreshold = 800;
-const int pitchHighThreshold = 30;
-const int volLowThreshold = 600;
-const int volHighThreshold = 30;
-
-// Theremin frequency range
-const int lowestFreq = 131;
-const int highestFreq = 1046;
-
-// C Minor Pentatonic scale
-int notes[] = {131,131,131,156,156,175,175,196,196,196,233,233,
-               262,262,262,311,311,349,349,392,392,392,466,466,
-               523,523,523,622,622,698,698,783,783,783,932,932,
-               1046};
-
-int pitchTimeOut = pitchLowThreshold * 8;
-int volTimeOut = volLowThreshold * 8;
-int smoothVol = 0;
-int vol = 0;
-
-// Find nearest note in scale for theremin
-int nearest(int x) {
-  int idx = 0;
-  int distance = abs(notes[idx] - x);
-  for (int i = 1; i < 37; i++) {
-    int d = abs(notes[i] - x);
-    if (d < distance) {
-      idx = i;
-      distance = d;
-    }
-  }
-  return idx;
-}
-
-void updateTheremin() {
-  int dur, vDur, freq;
-  long distance;
-  int jitter;
+void setupMozziAlien() {
+  Serial.println(F("Setting up Mozzi Alien mode..."));
   
-  // Pitch control (right hand)
-  digitalWrite(pitchOut, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(pitchOut, LOW);
-  
-  dur = pulseIn(pitchIn, HIGH, pitchTimeOut);
-  
-  if (dur < 5) {
-    freq = highestFreq;
-  } else {
-    distance = dur / 6;
-    if (distance >= pitchLowThreshold) distance = pitchLowThreshold;
-    if (distance < pitchHighThreshold) distance = pitchHighThreshold;
-    freq = map(distance, pitchHighThreshold, pitchLowThreshold, highestFreq, lowestFreq);
-  }
-  
-  jitter = random(-5, 5);
-  averaged = pAverage.next(freq);
-  thereminOsc.setFreq(averaged + jitter);
-  
-  // Volume control (left hand)
-  digitalWrite(volOut, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(volOut, LOW);
-  
-  vDur = pulseIn(volIn, HIGH, volTimeOut);
-  
-  if (vDur < 5) {
-    vol = vol - 4;
-    if (vol < 0) vol = 0;
-    distance = volLowThreshold;
-  } else {
-    vol = vol + 4;
-    if (vol > 255) vol = 255;
-    distance = vDur / 6;
-    if (distance > volLowThreshold) distance = volLowThreshold;
-    if (distance < volHighThreshold) distance = volHighThreshold;
-  }
-  
-  int mappedVol = map(distance, volHighThreshold, volLowThreshold, 255, 0);
-  smoothVol = vAverage.next(mappedVol);
-}
-
-int audioOutputTheremin() {
-  int sample = (thereminOsc.next() * smoothVol) >> 8;
-  return sample;
-}
-
-// =============================================================================
-// SENSOR-REACTIVE EFFECT FUNCTIONS
-// =============================================================================
-
-void updateAlienSensorReactive() {
-  // Base frequency controlled by left hand (pitch sensor)
-  int baseFreq = 440; // Default A4
-  if (inRange1) {
-    // Map distance to frequency: closer = higher pitch
-    baseFreq = map((int)avgDistance1, MIN_RANGE, MAX_RANGE, 880, 220);
-  }
-  
-  // Vibrato rate controlled by right hand (volume sensor)
-  float currentVibratoRate = vibratoRate;
-  if (inRange2) {
-    // Map distance to vibrato rate: closer = faster vibrato
-    currentVibratoRate = map((int)avgDistance2, MIN_RANGE, MAX_RANGE, 15.0, 2.0);
-    vibrato.setFreq(currentVibratoRate);
-  }
-  
-  // Apply vibrato
-  int jitter = random(-5, 5);
-  int vibrato_val = vibrato.next();
-  int vibrato_freq = (int)((float)baseFreq * vibratoDepth * vibrato_val / 256);
-  osc.setFreq(baseFreq + vibrato_freq + jitter);
-  
-  // Volume based on hand presence
-  if (handsDetected) {
-    alien_vol = 200;
-  } else {
-    alien_vol = 50; // Quiet when no hands
-  }
-}
-
-void updateRobotsSensorReactive() {
-  // Base robot pattern timing
-  static unsigned long baseRobotInterval = ROBOT_NOTE_DURATION;
-  
-  // Speed controlled by right hand
-  unsigned long currentInterval = baseRobotInterval;
-  if (inRange2) {
-    // Map distance to speed: closer = faster talking
-    currentInterval = map((int)avgDistance2, MIN_RANGE, MAX_RANGE, 50, 300);
-  }
-  
-  // Pitch range controlled by left hand
-  if (millis() - lastRobotChange >= currentInterval) {
-    lastRobotChange = millis();
-    robotPatternIndex = (robotPatternIndex + 1) % 8;
-    
-    int basePitch = robotPitchPattern[robotPatternIndex];
-    
-    // Modify pitch based on left hand position
-    if (inRange1) {
-      // Map distance to pitch multiplier: closer = higher pitch
-      float pitchMultiplier = map((int)avgDistance1, MIN_RANGE, MAX_RANGE, 2.0, 0.5);
-      basePitch = (int)(basePitch * pitchMultiplier);
-    }
-    
-    robotOsc.setFreq(basePitch);
-  }
-}
-
-// --- Effect Switching Logic ---
-enum Effect {
-  ALIEN,
-  ROBOTS,
-  THEREMIN
-};
-Effect currentEffect = ALIEN;
-unsigned long lastEffectChangeTime = 0;
-const unsigned long effectSwitchInterval = 5000; // 5 seconds
-
-// Robot effect is now inline - no separate class needed
-
-void setup(){
-  Serial.begin(9600);
-  Serial.println("Sound Test: Alien, Robots, and Theremin - Sensor Reactive");
-  
-  // Initialize HC-SR04 sensor pins
-  pinMode(trigPin1, OUTPUT);
-  pinMode(echoPin1, INPUT);
-  pinMode(trigPin2, OUTPUT);
-  pinMode(echoPin2, INPUT);
-  
-  // Initialize theremin sensor pins
-  pinMode(pitchOut, OUTPUT);
-  pinMode(pitchIn, INPUT);
-  pinMode(volOut, OUTPUT);
-  pinMode(volIn, INPUT);
-  digitalWrite(pitchOut, LOW);
-  digitalWrite(volOut, LOW);
-  
-  // Initialize sample arrays
-  for (int i = 0; i < SAMPLES; i++) {
-    distance1Samples[i] = MAX_RANGE + 10;
-    distance2Samples[i] = MAX_RANGE + 10;
-  }
-  
-  // Initialize theremin oscillator
-  thereminOsc.setFreq(220);
-  
+  // Start Mozzi
   startMozzi(CONTROL_RATE);
-  vibrato.setFreq(vibratoRate); // Set vibrato LFO rate for alien effect
+  
+  // Initialize oscillators
+  alienOsc.setFreq(alienPitch);
+  vibrato.setFreq(vibratoRate);
+  
+  // Reset alien state
+  alienVolume = 0.5;
+  alienPitch = 440.0;
 }
 
-void loop(){
-  audioHook();
+void disableMozziAlien() {
+  Serial.println(F("Disabling Mozzi Alien mode..."));
+  
+  // Stop Mozzi (this disables its timers)
+  stopMozzi();
+}
+
+// Mozzi required functions - these MUST always be available when Mozzi is running
+void updateControl() {
+  // Only process if we're in Mozzi mode, otherwise do minimal processing
+  if (currentMode == MODE_MOZZI_ALIEN) {
+    // Read sensors directly (like the working alien effect)
+    float d1 = readSensor(TRIG1, ECHO1);
+    float d2 = readSensor(TRIG2, ECHO2);
+    
+    bool leftHand = (d1 >= 1.0 && d1 <= 20.0);
+    bool rightHand = (d2 >= 1.0 && d2 <= 20.0);
+    
+    // Update alien controls
+    if (leftHand) {
+      alienVolume = map(d1 * 10, 10, 200, 255, 50);
+    } else {
+      alienVolume = 0;
+    }
+    
+    if (rightHand) {
+      alienPitch = map(d2 * 10, 10, 200, 800, 200);
+    } else {
+      alienPitch = 400;
+    }
+    
+    // Update oscillators
+    vibrato.setFreq(vibratoRate);
+    alienOsc.setFreq(alienPitch);
+  }
+}
+
+int updateAudio() {
+  // Only generate audio if we're in Mozzi mode
+  if (currentMode == MODE_MOZZI_ALIEN) {
+    // Generate alien sound with vibrato (simplified version)
+    int vibratoValue = vibrato.next();
+    float modulation = 1.0 + (vibratoValue / 512.0) * 0.1; // 10% vibrato depth
+    
+    int sample = alienOsc.next();
+    sample = (int)(sample * alienVolume * modulation / 255);
+    
+    return sample;
+  }
+  
+  return 0; // Silence when not in Mozzi mode
 }
 
 // =============================================================================
-// SENSOR READING FUNCTIONS (from solar_shrine_modular.ino)
+// SENSOR SYSTEM (Shared between both modes)
 // =============================================================================
 
-float readDistance(int trigPin, int echoPin) {
+float readSensor(int trigPin, int echoPin) {
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
   digitalWrite(trigPin, HIGH);
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
   
-  unsigned long duration = pulseIn(echoPin, HIGH, SENSOR_TIMEOUT);
+  unsigned long duration = pulseIn(echoPin, HIGH, 30000);
+  if (duration == 0) return 999.0;
   
-  if (duration == 0) {
-    return MAX_RANGE + 10; // No echo = out of range
-  }
-  
-  float distance = (duration * 0.034) / 2; // Convert to cm
-  return distance;
+  float distance = (duration * 0.034) / 2;
+  return (distance > 60.0) ? 999.0 : distance;
 }
 
-float getAverageDistance(float samples[], float newSample) {
-  samples[sampleIndex] = newSample;
-  sampleIndex = (sampleIndex + 1) % SAMPLES;
-  
-  float sum = 0;
-  for (int i = 0; i < SAMPLES; i++) {
-    sum += samples[i];
-  }
-  return sum / SAMPLES;
-}
+// =============================================================================
+// CONTROL HANDLERS (Mode-specific)
+// =============================================================================
 
-void updateSensors() {
-  // Read raw distances
-  float dist1 = readDistance(trigPin1, echoPin1);
-  float dist2 = readDistance(trigPin2, echoPin2);
-  
-  // Apply rolling average
-  avgDistance1 = getAverageDistance(distance1Samples, dist1);
-  avgDistance2 = getAverageDistance(distance2Samples, dist2);
-  
-  // Update hand detection flags
-  inRange1 = (avgDistance1 >= MIN_RANGE && avgDistance1 <= MAX_RANGE);
-  inRange2 = (avgDistance2 >= MIN_RANGE && avgDistance2 <= MAX_RANGE);
-  handsDetected = inRange1 || inRange2;
-}
-
-void updateControl(){
-  // Update sensor readings
-  updateSensors();
-  
-  // Check if it's time to switch effects
-  if (millis() - lastEffectChangeTime > effectSwitchInterval) {
-    lastEffectChangeTime = millis();
-    if (currentEffect == ALIEN) {
-      currentEffect = ROBOTS;
-      Serial.println("Switching to ROBOTS");
-    } else if (currentEffect == ROBOTS) {
-      currentEffect = THEREMIN;
-      Serial.println("Switching to THEREMIN");
-    } else {
-      currentEffect = ALIEN;
-      Serial.println("Switching to ALIEN");
-      // Re-initialize alien vibrato rate when switching back
-      vibrato.setFreq(vibratoRate);
+void handleDJScratchControls(bool leftHand, bool rightHand, float d2) {
+  // LEFT HAND - Play/Stop
+  if (leftHand) {
+    if (playState == 0) {
+      playState = 1;
+      sampleIndex = 0;
+      Serial.println(F("DJ: PLAY"));
+    }
+  } else {
+    if (playState == 1) {
+      playState = 0;
+      Serial.println(F("DJ: STOP"));
     }
   }
+  
+  // RIGHT HAND - Scratch + Speed Control (same logic as working DJ scratch)
+  static bool prevRightHand = false;
+  static unsigned long lastTransition = 0;
+  static uint8_t transitionCount = 0;
+  static int8_t scratchDirection = 1;
+  static unsigned long rightHandStartTime = 0;
+  static unsigned long lastRightHandDetected = 0;
+  
+  if (rightHand) {
+    lastRightHandDetected = millis();
+  }
+  
+  if (rightHand != prevRightHand) {
+    lastTransition = millis();
+    transitionCount++;
+    scratchDirection = -scratchDirection;
+  }
+  
+  if (rightHand && !prevRightHand) {
+    rightHandStartTime = millis();
+  }
+  
+  if (millis() - lastTransition > 500) {
+    transitionCount = 0;
+  }
+  
+  // Stop scratching if no right hand for 200ms
+  if (!rightHand && (millis() - lastRightHandDetected) > 200) {
+    if (isScratchMode) {
+      isScratchMode = false;
+      scratchSpeed = 1;
+      playbackSpeed = 5;
+      transitionCount = 0;
+      Serial.println(F("DJ: NORMAL"));
+    }
+  }
+  // Scratch mode - rapid transitions
+  else if (rightHand && transitionCount >= 2 && (millis() - lastTransition) < 300) {
+    isScratchMode = true;
+    
+    if (transitionCount >= 4) {
+      scratchSpeed = scratchDirection * 6;
+      Serial.println(F("DJ: SCRATCH+"));
+    } else {
+      scratchSpeed = scratchDirection * 3;
+      Serial.println(F("DJ: SCRATCH"));
+    }
+  }
+  // Distance speed control
+  else if (rightHand && (millis() - rightHandStartTime) > 300) {
+    isScratchMode = false;
+    scratchSpeed = 1;
+    
+    float ratio = (d2 - 1.0) / (20.0 - 1.0);
+    ratio = constrain(ratio, 0.0, 1.0);
+    playbackSpeed = (uint8_t)(5 + (10 * ratio));  // 5 (normal) to 15 (slower)
+    
+    static unsigned long lastSpeedReport = 0;
+    if (millis() - lastSpeedReport > 2000) {
+      Serial.print(F("DJ: SPEED:"));
+      Serial.println(playbackSpeed);
+      lastSpeedReport = millis();
+    }
+  }
+  
+  prevRightHand = rightHand;
+}
 
-  // Update the control logic for the currently active effect
-  switch (currentEffect) {
-    case ALIEN:
-      updateAlienSensorReactive();
-      break;
-    case ROBOTS:
-      updateRobotsSensorReactive();
-      break;
-    case THEREMIN:
-      updateTheremin();
-      break;
+void handleAlienControls(bool leftHand, bool rightHand, float d1, float d2) {
+  // Left hand controls volume (closer = louder)
+  if (leftHand) {
+    float volumeRatio = (20.0 - d1) / 19.0;  // Closer = higher ratio
+    volumeRatio = constrain(volumeRatio, 0.0, 1.0);
+    alienVolume = volumeRatio;
+  } else {
+    alienVolume = 0.3;  // Default volume when no left hand
+  }
+  
+  // Right hand controls pitch (closer = higher pitch)
+  if (rightHand) {
+    float pitchRatio = (20.0 - d2) / 19.0;  // Closer = higher ratio
+    pitchRatio = constrain(pitchRatio, 0.0, 1.0);
+    alienPitch = 200.0 + (pitchRatio * 600.0);  // 200Hz to 800Hz
+  } else {
+    alienPitch = 440.0;  // Default pitch
+  }
+  
+  // Status reporting
+  static unsigned long lastAlienReport = 0;
+  if (millis() - lastAlienReport > 2000) {
+    Serial.print(F("Alien - Volume: "));
+    Serial.print(alienVolume);
+    Serial.print(F(", Pitch: "));
+    Serial.print(alienPitch);
+    Serial.println(F("Hz"));
+    lastAlienReport = millis();
   }
 }
 
-int updateAudio(){
-  switch (currentEffect) {
-    case ALIEN:
-      {
-        int out = osc.next();
-        return (out * alien_vol) >> 8;
-      }
-    case ROBOTS:
-      return audioOutputRobots();
-    case THEREMIN:
-      return audioOutputTheremin();
-    default:
-      return 0;
+// =============================================================================
+// MAIN SETUP AND LOOP
+// =============================================================================
+
+void setup() {
+  Serial.begin(9600);
+  Serial.println(F("Modular Audio System Starting..."));
+  
+  // Setup sensor pins
+  pinMode(TRIG1, OUTPUT); pinMode(ECHO1, INPUT);
+  pinMode(TRIG2, OUTPUT); pinMode(ECHO2, INPUT);
+  
+  // Start with DJ Scratch mode
+  setupDJScratch();
+  lastModeChange = millis();
+  
+  Serial.println(F("Started in DJ SCRATCH mode"));
+}
+
+void loop() {
+  // Check if it's time to toggle audio modes
+  if (millis() - lastModeChange >= MODE_DURATION) {
+    if (currentMode == MODE_DJ_SCRATCH) {
+      // Switch to Mozzi Alien
+      disableDJScratch();
+      currentMode = MODE_MOZZI_ALIEN;
+      setupMozziAlien();
+      Serial.println(F("=== SWITCHED TO MOZZI ALIEN MODE ==="));
+    } else {
+      // Switch to DJ Scratch
+      disableMozziAlien();
+      currentMode = MODE_DJ_SCRATCH;
+      setupDJScratch();
+      Serial.println(F("=== SWITCHED TO DJ SCRATCH MODE ==="));
+    }
+    lastModeChange = millis();
+  }
+  
+  // CRITICAL: audioHook() must be called EVERY loop iteration for Mozzi
+  // This is the key difference from our previous implementation
+  if (currentMode == MODE_MOZZI_ALIEN) {
+    audioHook();
+  } else if (currentMode == MODE_DJ_SCRATCH) {
+    // Handle DJ scratch controls (Mozzi handles its own controls in updateControl)
+    static unsigned long lastSensorRead = 0;
+    if (millis() - lastSensorRead >= 30) {  // Read sensors every 30ms for DJ scratch
+      float d1 = readSensor(TRIG1, ECHO1);
+      float d2 = readSensor(TRIG2, ECHO2);
+      
+      bool leftHand = (d1 >= 1.0 && d1 <= 20.0);
+      bool rightHand = (d2 >= 1.0 && d2 <= 20.0);
+      
+      handleDJScratchControls(leftHand, rightHand, d2);
+      lastSensorRead = millis();
+    }
+    
+    delay(5);  // Small delay for DJ scratch mode
   }
 }
