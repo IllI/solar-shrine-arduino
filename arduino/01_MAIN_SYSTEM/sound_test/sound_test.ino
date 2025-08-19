@@ -23,7 +23,7 @@ const unsigned long MODE_DURATION = 5000; // 5 seconds per mode
 // SENSOR SYSTEM (Shared between both modes)
 // =============================================================================
 #define TRIG1 10  // Left sensor trigger
-#define ECHO1 8   // Left sensor echo  
+#define ECHO1 11  // Left sensor echo (matches CUSTOM_SHIELD_WIRING.md)
 #define TRIG2 5   // Right sensor trigger
 #define ECHO2 6   // Right sensor echo
 
@@ -123,6 +123,14 @@ void disableDJScratch() {
 #include <MozziConfigValues.h>
 #define MOZZI_AUDIO_MODE MOZZI_OUTPUT_2PIN_PWM
 
+// Custom pin configuration to free up pin 11 for sensor
+// Default: pin 11 (high) + pin 12 (low)
+// Custom:  pin 12 (high) + pin 13 (low)
+#define MOZZI_AUDIO_PIN_1 12
+#define MOZZI_AUDIO_PIN_1_REGISTER OCR1B
+#define MOZZI_AUDIO_PIN_1_LOW 13
+#define MOZZI_AUDIO_PIN_1_LOW_REGISTER OCR1C
+
 #include <MozziGuts.h>
 #include <Oscil.h>
 #include <tables/sin2048_int8.h>
@@ -164,9 +172,9 @@ void disableMozziAlien() {
 void updateControl() {
   // Only process if we're in Mozzi mode, otherwise do minimal processing
   if (currentMode == MODE_MOZZI_ALIEN) {
-    // Read sensors directly (like the working alien effect)
+    // Read sensors safely (avoiding pin 11 conflict with Mozzi audio)
     float d1 = readSensor(TRIG1, ECHO1);
-    float d2 = readSensor(TRIG2, ECHO2);
+     float d2 = readSensor(TRIG2, ECHO2);
     
     bool leftHand = (d1 >= 1.0 && d1 <= 20.0);
     bool rightHand = (d2 >= 1.0 && d2 <= 20.0);
@@ -223,6 +231,8 @@ float readSensor(int trigPin, int echoPin) {
   float distance = (duration * 0.034) / 2;
   return (distance > 60.0) ? 999.0 : distance;
 }
+
+
 
 // =============================================================================
 // CONTROL HANDLERS (Mode-specific)
@@ -389,7 +399,7 @@ void loop() {
     static unsigned long lastSensorRead = 0;
     if (millis() - lastSensorRead >= 30) {  // Read sensors every 30ms for DJ scratch
       float d1 = readSensor(TRIG1, ECHO1);
-      float d2 = readSensor(TRIG2, ECHO2);
+       float d2 = readSensor(TRIG2, ECHO2);
       
       bool leftHand = (d1 >= 1.0 && d1 <= 20.0);
       bool rightHand = (d2 >= 1.0 && d2 <= 20.0);
