@@ -1,6 +1,7 @@
 #include "DjScratch.h"
 #include <avr/pgmspace.h>
 #include "audio_data.h"
+#include "VocoderEffect.h"
 
 namespace DjScratch {
 
@@ -94,6 +95,10 @@ namespace DjScratch {
         uint8_t sample = pgm_read_byte(&audioData[sampleIndex]);
         int16_t amp = ((int16_t)sample - 128) * 4;
         amp = constrain(amp, -128, 127);
+        
+        // *** FEED SAMPLE TO VOCODER ***
+        VocoderEffect::feedAudioSample(amp);
+        
         OCR1B = ((uint32_t)(amp + 128) * ICR1) / 255;
 
         if (isScratchMode) {

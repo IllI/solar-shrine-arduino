@@ -1,19 +1,19 @@
 /****************************************************************************
  Solar Shrine Playa - Modular Audio Effect System
- Cycles between DJ Scratch, Alien, Robots, and Theremin effects every 5 seconds
+ Cycles between DJ Scratch, Vocoder Robot, Robots, and Theremin effects every 5 seconds
  
  Effects included:
- - DJ Scratch: Vibrato sine wave effect (simulated)
- - Alien: Vibrato sine wave effect
- - Robots: Robotic talking pattern
- - Theremin: Sensor-based theremin with C Minor Pentatonic scale
+ - DJ Scratch: PROGMEM audio playback with scratching effects
+ - Vocoder Robot: Classic robot voice effect using DJ audio as input
+ - Robots: Musical theremin with pentatonic scale
+ - Theremin: Automatic sawtooth wave pattern
 *********************************************************************************/
 
 #include <avr/pgmspace.h>
 #include "audio_data.h"
 
 #include "DjScratch.h"
-#include "AlienEffect.h"
+#include "VocoderEffect.h"
 #include "RobotsEffect.h"
 #include "ThereminEffect.h"
 
@@ -48,7 +48,7 @@
 // =============================================================================
 enum AudioMode {
   MODE_DJ_SCRATCH = 0,
-  MODE_MOZZI_ALIEN = 1,
+  MODE_VOCODER_ROBOT = 1,
   MODE_MOZZI_ROBOTS = 2,
   MODE_MOZZI_THEREMIN = 3
 };
@@ -102,7 +102,7 @@ bool isHandPresent(float distance) {
 void setup() {
   Serial.begin(9600);
   Serial.println("Solar Shrine Playa - Modular Audio Effect System");
-  Serial.println("Cycling: DJ Scratch -> Alien -> Robots -> Theremin");
+  Serial.println("Cycling: DJ Scratch -> Vocoder Robot -> Robots -> Theremin");
   
   // Initialize sensor pins
   pinMode(TRIG1, OUTPUT);
@@ -112,7 +112,7 @@ void setup() {
   
   // Initialize all effect modules
   DjScratch::setup();
-  AlienEffect::setup();
+  VocoderEffect::setup();
   RobotsEffect::setup();
   ThereminEffect::setup();
   
@@ -127,6 +127,11 @@ void setup() {
 ISR(TIMER1_COMPB_vect) {
   if (currentMode == MODE_DJ_SCRATCH) {
     DjScratch::handleISR();
+  } else if (currentMode == MODE_VOCODER_ROBOT) {
+    // In vocoder mode, we still need to feed DJ audio to the vocoder
+    // but we don't output it directly - the vocoder processes it
+    DjScratch::handleISR();
+    OCR1B = 200; // Silence DJ output, vocoder handles audio output
   } else {
     OCR1B = 200; // Silence when not in DJ mode
   }
@@ -153,7 +158,7 @@ void loop() {
   
   // CRITICAL: audioHook() must be called EVERY loop iteration for Mozzi
   // This is the key difference from our previous implementation
-  if (currentMode == MODE_MOZZI_ALIEN || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_MOZZI_THEREMIN) {
+  if (currentMode == MODE_VOCODER_ROBOT || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_MOZZI_THEREMIN) {
     audioHook();
   } else if (currentMode == MODE_DJ_SCRATCH) {
     // Handle DJ scratch controls (Mozzi handles its own controls in updateControl)
@@ -181,8 +186,8 @@ void switchToNextMode() {
     case MODE_DJ_SCRATCH:
       DjScratch::exit();
       break;
-    case MODE_MOZZI_ALIEN:
-      AlienEffect::exit();
+    case MODE_VOCODER_ROBOT:
+      VocoderEffect::exit();
       break;
     case MODE_MOZZI_ROBOTS:
       RobotsEffect::exit();
@@ -193,9 +198,9 @@ void switchToNextMode() {
   }
 
   // Stop Mozzi if we are leaving a Mozzi mode and entering a non-Mozzi mode
-  bool wasMozzi = (previousMode == MODE_MOZZI_ALIEN || previousMode == MODE_MOZZI_ROBOTS || previousMode == MODE_MOZZI_THEREMIN);
+  bool wasMozzi = (previousMode == MODE_VOCODER_ROBOT || previousMode == MODE_MOZZI_ROBOTS || previousMode == MODE_MOZZI_THEREMIN);
   currentMode = (AudioMode)((currentMode + 1) % 4);
-  bool isMozzi = (currentMode == MODE_MOZZI_ALIEN || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_MOZZI_THEREMIN);
+  bool isMozzi = (currentMode == MODE_VOCODER_ROBOT || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_MOZZI_THEREMIN);
 
   if (wasMozzi && !isMozzi) {
     stopMozzi();
@@ -208,8 +213,8 @@ void switchToNextMode() {
     case MODE_DJ_SCRATCH:
       DjScratch::enter();
       break;
-    case MODE_MOZZI_ALIEN:
-      AlienEffect::enter();
+    case MODE_VOCODER_ROBOT:
+      VocoderEffect::enter();
       break;
     case MODE_MOZZI_ROBOTS:
       RobotsEffect::enter();
@@ -249,8 +254,8 @@ void updateControl() {
   
   // Update current Mozzi effect
   switch (currentMode) {
-    case MODE_MOZZI_ALIEN:
-      AlienEffect::update(leftHand, rightHand, d1, d2);
+    case MODE_VOCODER_ROBOT:
+      VocoderEffect::update(leftHand, rightHand, d1, d2);
       break;
     case MODE_MOZZI_ROBOTS:
       RobotsEffect::update(leftHand, rightHand, d1, d2);
@@ -278,8 +283,8 @@ int updateAudio() {
 
 int audioOutput() {
   switch (currentMode) {
-    case MODE_MOZZI_ALIEN:
-      return AlienEffect::audio();
+    case MODE_VOCODER_ROBOT:
+      return VocoderEffect::audio();
     case MODE_MOZZI_ROBOTS:
       return RobotsEffect::audio();
     case MODE_MOZZI_THEREMIN:
