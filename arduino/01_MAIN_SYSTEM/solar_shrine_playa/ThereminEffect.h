@@ -8,7 +8,7 @@ namespace ThereminEffect {
   void setup();
   void enter();
   void exit();
-  void update(bool leftHand, bool rightHand, float d1, float d2);
+  void update();
   int audio();
 
 }

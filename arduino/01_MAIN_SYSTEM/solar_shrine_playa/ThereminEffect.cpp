@@ -1,18 +1,17 @@
 #include "ThereminEffect.h"
 
 #include <Oscil.h>
-#include <tables/sin2048_int8.h>
-#include <RollingAverage.h>
+#include <tables/saw2048_int8.h>
 
 namespace ThereminEffect {
 
   namespace {
-    Oscil <SIN2048_NUM_CELLS, AUDIO_RATE> thereminOsc(SIN2048_DATA);
-    RollingAverage <int, 4> thereminPitchAvg;
-    RollingAverage <int, 8> thereminVolAvg;
-    int thereminBaseFreq = 440;
-    int thereminSmoothVol = 0;
-    int thereminVol = 0;
+    Oscil<SAW2048_NUM_CELLS, AUDIO_RATE> thereminOsc(SAW2048_DATA);
+    int thereminPitchPattern[] = {220, 330, 440, 330, 220, 165, 220, 330};
+    int thereminPatternIndex = 0;
+    unsigned long lastThereminChange = 0;
+    const unsigned long THEREMIN_NOTE_DURATION = 200;
+    int thereminVolume = 255; // Max volume
   }
 
   void setup() {
@@ -20,39 +19,24 @@ namespace ThereminEffect {
   }
 
   void enter() {
-    thereminOsc.setFreq(440);
-    thereminVol = 0;
-    thereminSmoothVol = 0;
-    thereminBaseFreq = 440;
+    thereminOsc.setFreq(thereminPitchPattern[0]);
+    lastThereminChange = millis();
   }
 
   void exit() {
     // No specific exit actions needed
   }
 
-  void update(bool leftHand, bool rightHand, float d1, float d2) {
-    int freq;
-    if (rightHand) {
-      freq = map(d2 * 10, 10, 200, 1046, 131);
-      freq = constrain(freq, 131, 1046);
-    } else {
-      freq = 131;
+  void update() {
+    if (millis() - lastThereminChange >= THEREMIN_NOTE_DURATION) {
+      thereminPatternIndex = (thereminPatternIndex + 1) % 8;
+      thereminOsc.setFreq(thereminPitchPattern[thereminPatternIndex]);
+      lastThereminChange = millis();
     }
-    thereminBaseFreq = thereminPitchAvg.next(freq);
-    thereminOsc.setFreq(thereminBaseFreq);
-
-    if (leftHand) {
-      thereminVol = thereminVol + 4;
-      if (thereminVol > 255) thereminVol = 255;
-    } else {
-      thereminVol = thereminVol - 4;
-      if (thereminVol < 0) thereminVol = 0;
-    }
-    thereminSmoothVol = thereminVolAvg.next(thereminVol);
   }
 
   int audio() {
-    return (thereminOsc.next() * thereminSmoothVol) >> 8;
+    return (thereminOsc.next() * thereminVolume);
   }
 
 }

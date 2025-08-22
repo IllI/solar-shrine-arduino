@@ -253,10 +253,10 @@ void updateControl() {
       AlienEffect::update(leftHand, rightHand, d1, d2);
       break;
     case MODE_MOZZI_ROBOTS:
-      RobotsEffect::update();
+      RobotsEffect::update(leftHand, rightHand, d1, d2);
       break;
     case MODE_MOZZI_THEREMIN:
-      ThereminEffect::update(leftHand, rightHand, d1, d2);
+      ThereminEffect::update();
       break;
     default:
       // Should not reach here in Mozzi modes

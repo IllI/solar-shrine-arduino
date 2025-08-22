@@ -8,7 +8,7 @@ namespace RobotsEffect {
   void setup();
   void enter();
   void exit();
-  void update();
+  void update(bool leftHand, bool rightHand, float d1, float d2);
   int audio();
 
 }

@@ -299,6 +299,44 @@ const unsigned long MODE_DURATION = 5000; // 5 seconds
    - Ensure oscillator is properly initialized in `enter()` function
    - Check that `update()` function is setting oscillator frequency correctly
 
+### **Volume vs. Effect Control Separation**
+1. **Keep Volume Simple**: The `audio()` function should use simple, direct volume control
+   ```cpp
+   // ✅ CORRECT - Simple volume control in audio()
+   return (alienOsc.next() * 255);
+   
+   // ❌ INCORRECT - Complex processing in audio() can break volume
+   return (complex_processing * alienSmoothVol);
+   ```
+
+2. **Effect Control in update()**: All interactive features should be handled in the `update()` function
+   ```cpp
+   void update(bool leftHand, bool rightHand, float d1, float d2) {
+     // Handle all interactive features here:
+     // - Frequency modulation
+     // - Vibrato depth/rate
+     // - Harmonic content
+     // - Echo parameters
+     // - Filter settings
+     // - Motion reactivity
+     
+     // Set oscillator frequency based on hand position
+     alienOsc.setFreq(modulatedFreq);
+   }
+   ```
+
+3. **Volume Control Strategy**:
+   - **Simple audio() function**: Use hardcoded maximum volume (255) for reliable output
+   - **Effect parameters in update()**: Control frequency, vibrato, harmonics, echo, etc.
+   - **Hand presence logic**: Can be handled in update() to control effect intensity
+   - **Avoid complex audio processing**: Keep the audio output path simple and direct
+
+4. **Why This Works**:
+   - Volume control is isolated from effect processing
+   - Audio output path remains simple and reliable
+   - Interactive features don't interfere with volume
+   - Consistent with working effects (RobotsEffect, ThereminEffect)
+
 ### **Mode Switching Issues**
 1. Check serial output for mode switch messages
 2. Verify `lastModeChange` timing logic
