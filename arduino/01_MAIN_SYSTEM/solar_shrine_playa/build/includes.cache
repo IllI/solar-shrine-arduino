@@ -1,0 +1,42 @@
+[
+  {
+    "Sourcefile": null,
+    "Include": "",
+    "Includepath": "C:\\Users\\cityz\\AppData\\Local\\Arduino15\\packages\\arduino\\hardware\\avr\\1.8.6\\cores\\arduino"
+  },
+  {
+    "Sourcefile": null,
+    "Include": "",
+    "Includepath": "C:\\Users\\cityz\\AppData\\Local\\Arduino15\\packages\\arduino\\hardware\\avr\\1.8.6\\variants\\mega"
+  },
+  {
+    "Sourcefile": "C:\\Users\\cityz\\IllI\\play\\soulShine\\solar-shrine-arduino\\arduino\\01_MAIN_SYSTEM\\solar_shrine_playa\\build\\sketch\\solar_shrine_playa.ino.cpp",
+    "Include": "MozziConfigValues.h",
+    "Includepath": "C:\\Users\\cityz\\Documents\\Arduino\\libraries\\Mozzi"
+  },
+  {
+    "Sourcefile": "C:\\Users\\cityz\\IllI\\play\\soulShine\\solar-shrine-arduino\\arduino\\01_MAIN_SYSTEM\\solar_shrine_playa\\build\\sketch\\solar_shrine_playa.ino.cpp",
+    "Include": "FixMath.h",
+    "Includepath": "C:\\Users\\cityz\\Documents\\Arduino\\libraries\\FixMath\\src"
+  },
+  {
+    "Sourcefile": "C:\\Users\\cityz\\IllI\\play\\soulShine\\solar-shrine-arduino\\arduino\\01_MAIN_SYSTEM\\solar_shrine_playa\\build\\sketch\\solar_shrine_playa.ino.cpp",
+    "Include": "",
+    "Includepath": null
+  },
+  {
+    "Sourcefile": "C:\\Users\\cityz\\Documents\\Arduino\\libraries\\Mozzi\\mozzi_fixmath.cpp",
+    "Include": "",
+    "Includepath": null
+  },
+  {
+    "Sourcefile": "C:\\Users\\cityz\\Documents\\Arduino\\libraries\\Mozzi\\utility\\FrequencyTimer2.cpp",
+    "Include": "",
+    "Includepath": null
+  },
+  {
+    "Sourcefile": "C:\\Users\\cityz\\Documents\\Arduino\\libraries\\Mozzi\\utility\\TimerOne.cpp",
+    "Include": "",
+    "Includepath": null
+  }
+]

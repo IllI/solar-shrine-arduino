@@ -1,3 +1,4 @@
+#line 1 "C:\\Users\\cityz\\IllI\\play\\soulShine\\solar-shrine-arduino\\arduino\\01_MAIN_SYSTEM\\solar_shrine_playa\\MODULAR_AUDIO_SYSTEM_GUIDE.md"
 # Modular Audio System - DJ Scratch + Mozzi Alien Effect
 
 ## 🎵 **System Overview**
@@ -282,23 +283,6 @@ const unsigned long MODE_DURATION = 5000; // 5 seconds
 2. Check Mozzi library installation
 3. Ensure `startMozzi()` is called in `setupMozziAlien()`
 
-### **Low Volume in Mozzi Effects**
-1. **Volume Control Pattern**: Mozzi effects must use the pattern `(oscillator.next() * volume)` where volume is 0-255
-2. **Correct Implementation**: 
-   ```cpp
-   // ✅ CORRECT - This works (like RobotsEffect)
-   return (alienOsc.next() * 255);
-   
-   // ❌ INCORRECT - This doesn't work
-   return 127; // Direct value doesn't work properly
-   ```
-3. **Volume Range**: Use 255 for maximum volume, 0 for silence
-4. **Oscillator Required**: Always use an oscillator (like `alienOsc.next()`) rather than returning constant values
-5. **Troubleshooting Steps**:
-   - Compare with working effects (RobotsEffect uses `robotVolume = 255`)
-   - Ensure oscillator is properly initialized in `enter()` function
-   - Check that `update()` function is setting oscillator frequency correctly
-
 ### **Mode Switching Issues**
 1. Check serial output for mode switch messages
 2. Verify `lastModeChange` timing logic
@@ -335,8 +319,6 @@ const unsigned long MODE_DURATION = 5000; // 5 seconds
 - ✅ No distortion or interference
 - ✅ Smooth transitions between modes
 - ✅ Pin 12 audio output working perfectly
-- ✅ All Mozzi effects (Alien, Robots, Theremin) at proper volume levels
-- ✅ Volume control properly implemented using oscillator multiplication pattern
 
 ### **Sensor Responsiveness**
 - ✅ Both sensors detect hand presence accurately in all modes
