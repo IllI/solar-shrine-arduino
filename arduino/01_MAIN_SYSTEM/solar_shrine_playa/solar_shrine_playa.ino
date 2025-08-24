@@ -13,7 +13,7 @@
 #include "audio_data.h"
 
 #include "DjScratch.h"
-#include "VocoderEffect.h"
+#include "ScaleEffect.h"
 #include "RobotsEffect.h"
 #include "ThereminEffect.h"
 
@@ -112,7 +112,7 @@ void setup() {
   
   // Initialize all effect modules
   DjScratch::setup();
-  VocoderEffect::setup();
+  ScaleEffect::setup();
   RobotsEffect::setup();
   ThereminEffect::setup();
   
@@ -187,7 +187,7 @@ void switchToNextMode() {
       DjScratch::exit();
       break;
     case MODE_VOCODER_ROBOT:
-      VocoderEffect::exit();
+      ScaleEffect::exit();
       break;
     case MODE_MOZZI_ROBOTS:
       RobotsEffect::exit();
@@ -214,7 +214,7 @@ void switchToNextMode() {
       DjScratch::enter();
       break;
     case MODE_VOCODER_ROBOT:
-      VocoderEffect::enter();
+      ScaleEffect::enter();
       break;
     case MODE_MOZZI_ROBOTS:
       RobotsEffect::enter();
@@ -255,13 +255,13 @@ void updateControl() {
   // Update current Mozzi effect
   switch (currentMode) {
     case MODE_VOCODER_ROBOT:
-      VocoderEffect::update(leftHand, rightHand, d1, d2);
+      ScaleEffect::update(leftHand, rightHand, d1, d2);
       break;
     case MODE_MOZZI_ROBOTS:
       RobotsEffect::update(leftHand, rightHand, d1, d2);
       break;
     case MODE_MOZZI_THEREMIN:
-      ThereminEffect::update();
+      ThereminEffect::update(leftHand, rightHand, d1, d2);
       break;
     default:
       // Should not reach here in Mozzi modes
@@ -284,7 +284,7 @@ int updateAudio() {
 int audioOutput() {
   switch (currentMode) {
     case MODE_VOCODER_ROBOT:
-      return VocoderEffect::audio();
+      return ScaleEffect::audio();
     case MODE_MOZZI_ROBOTS:
       return RobotsEffect::audio();
     case MODE_MOZZI_THEREMIN:

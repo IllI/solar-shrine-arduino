@@ -1,5 +1,6 @@
-C:\Users\cityz\IllI\play\soulShine\solar-shrine-arduino\arduino\01_MAIN_SYSTEM\solar_shrine_playa\build\sketch\solar_shrine_playa.ino.cpp.o: \
- C:\Users\cityz\IllI\play\soulShine\solar-shrine-arduino\arduino\01_MAIN_SYSTEM\solar_shrine_playa\build\sketch\solar_shrine_playa.ino.cpp \
+C:\Users\cityz\IllI\play\soulShine\solar-shrine-arduino\arduino\01_MAIN_SYSTEM\solar_shrine_playa\build\sketch\ThereminEffect.cpp.o: \
+ C:\Users\cityz\IllI\play\soulShine\solar-shrine-arduino\arduino\01_MAIN_SYSTEM\solar_shrine_playa\build\sketch\ThereminEffect.cpp \
+ C:\Users\cityz\IllI\play\soulShine\solar-shrine-arduino\arduino\01_MAIN_SYSTEM\solar_shrine_playa\build\sketch\ThereminEffect.h \
  C:\Users\cityz\AppData\Local\Arduino15\packages\arduino\hardware\avr\1.8.6\cores\arduino/Arduino.h \
  C:\Users\cityz\AppData\Local\Arduino15\packages\arduino\hardware\avr\1.8.6\cores\arduino/binary.h \
  C:\Users\cityz\AppData\Local\Arduino15\packages\arduino\hardware\avr\1.8.6\cores\arduino/WCharacter.h \
@@ -11,9 +12,6 @@ C:\Users\cityz\IllI\play\soulShine\solar-shrine-arduino\arduino\01_MAIN_SYSTEM\s
  C:\Users\cityz\AppData\Local\Arduino15\packages\arduino\hardware\avr\1.8.6\cores\arduino/USBAPI.h \
  C:\Users\cityz\AppData\Local\Arduino15\packages\arduino\hardware\avr\1.8.6\cores\arduino/Arduino.h \
  C:\Users\cityz\AppData\Local\Arduino15\packages\arduino\hardware\avr\1.8.6\variants\mega/pins_arduino.h \
- C:\Users\cityz\IllI\play\soulShine\solar-shrine-arduino\arduino\01_MAIN_SYSTEM\solar_shrine_playa\build\sketch\audio_data.h \
- C:\Users\cityz\IllI\play\soulShine\solar-shrine-arduino\arduino\01_MAIN_SYSTEM\solar_shrine_playa\build\sketch\DjScratch.h \
- C:\Users\cityz\IllI\play\soulShine\solar-shrine-arduino\arduino\01_MAIN_SYSTEM\solar_shrine_playa\build\sketch\VocoderEffect.h \
  C:\Users\cityz\Documents\Arduino\libraries\Mozzi/MozziGuts.h \
  C:\Users\cityz\Documents\Arduino\libraries\Mozzi/MozziConfigValues.h \
  C:\Users\cityz\Documents\Arduino\libraries\Mozzi/hardware_defines.h \
@@ -43,22 +41,5 @@ C:\Users\cityz\IllI\play\soulShine\solar-shrine-arduino\arduino\01_MAIN_SYSTEM\s
  C:\Users\cityz\Documents\Arduino\libraries\Mozzi/MozziGuts.h \
  C:\Users\cityz\Documents\Arduino\libraries\Mozzi/mozzi_fixmath.h \
  C:\Users\cityz\Documents\Arduino\libraries\Mozzi/mozzi_pgmspace.h \
- C:\Users\cityz\Documents\Arduino\libraries\Mozzi/RollingAverage.h \
- C:\Users\cityz\Documents\Arduino\libraries\Mozzi/mozzi_utils.h \
- C:\Users\cityz\Documents\Arduino\libraries\Mozzi/tables/saw2048_int8.h \
- C:\Users\cityz\Documents\Arduino\libraries\Mozzi/mozzi_pgmspace.h \
- C:\Users\cityz\Documents\Arduino\libraries\Mozzi/tables/square_no_alias_2048_int8.h \
  C:\Users\cityz\Documents\Arduino\libraries\Mozzi/tables/sin2048_int8.h \
- C:\Users\cityz\IllI\play\soulShine\solar-shrine-arduino\arduino\01_MAIN_SYSTEM\solar_shrine_playa\build\sketch\RobotsEffect.h \
- C:\Users\cityz\Documents\Arduino\libraries\Mozzi/mozzi_midi.h \
- C:\Users\cityz\Documents\Arduino\libraries\Mozzi/ADSR.h \
- C:\Users\cityz\Documents\Arduino\libraries\Mozzi/Line.h \
- C:\Users\cityz\IllI\play\soulShine\solar-shrine-arduino\arduino\01_MAIN_SYSTEM\solar_shrine_playa\build\sketch\ThereminEffect.h \
- C:\Users\cityz\Documents\Arduino\libraries\Mozzi/MozziConfigValues.h \
- C:\Users\cityz\Documents\Arduino\libraries\Mozzi/LowPassFilter.h \
- C:\Users\cityz\Documents\Arduino\libraries\Mozzi/ResonantFilter.h \
- C:\Users\cityz\Documents\Arduino\libraries\Mozzi/IntegerType.h \
- C:\Users\cityz\Documents\Arduino\libraries\Mozzi/meta.h \
- C:\Users\cityz\Documents\Arduino\libraries\Mozzi/tables/cos2048_int8.h \
- C:\Users\cityz\Documents\Arduino\libraries\Mozzi/tables/triangle2048_int8.h \
- C:\Users\cityz\Documents\Arduino\libraries\Mozzi/tables/triangle_valve_2048_int8.h
+ C:\Users\cityz\Documents\Arduino\libraries\Mozzi/mozzi_pgmspace.h

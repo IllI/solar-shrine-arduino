@@ -1,7 +1,8 @@
+#line 1 "C:\\Users\\cityz\\IllI\\play\\soulShine\\solar-shrine-arduino\\arduino\\01_MAIN_SYSTEM\\solar_shrine_playa\\DjScratch.cpp"
 #include "DjScratch.h"
 #include <avr/pgmspace.h>
 #include "audio_data.h"
-#include "ScaleEffect.h"
+#include "VocoderEffect.h"
 
 namespace DjScratch {
 
@@ -96,8 +97,7 @@ namespace DjScratch {
         int16_t amp = ((int16_t)sample - 128) * 4;
         amp = constrain(amp, -128, 127);
         
-        // *** FEED SAMPLE TO SCALE EFFECT (formerly Vocoder) ***
-        ScaleEffect::feedAudioSample(amp);
+
         
         OCR1B = ((uint32_t)(amp + 128) * ICR1) / 255;
 
