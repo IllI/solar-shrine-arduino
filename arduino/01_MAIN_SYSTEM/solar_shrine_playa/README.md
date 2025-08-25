@@ -12,8 +12,6 @@ Contents
 - Data Protocol (if applicable)
 - Files and Structure
 - Technician Upload Instructions (Field Procedure)
-- Embedded References (IDE selection and terminal commands)
-- Base64 helper (how this README embeds images)
 
 
 ## Overview and Project Context
@@ -117,43 +115,14 @@ Notes:
 - On Arduino IDE, select the correct board (Arduino Mega) and the correct serial port from the dropdown next to the Upload button.
 - If upload fails due to port busy, close any serial monitor or TouchDesigner connections, then retry.
 
+### Visual aids
+- After step 2 (running the git command), the terminal should look similar to this:
 
-## Embedded References (IDE selection and terminal commands)
-Below are inline image references embedded as Base64 data URLs so the README is self-contained. If the Base64 is not yet inlined, see the next section to generate and paste it.
+  ![Terminal command example](../../../terminal%20command.png)
 
-- Select board in Arduino IDE:
+- For step 7 (Arduino IDE board/port selection), use the Board/Port dropdown near the Upload button:
 
-<img alt="Select Arduino Board" src="data:image/png;base64,{{BASE64_SELECT_BOARD_ARDUINO_IDE}}" />
-
-- Terminal command example:
-
-<img alt="Terminal command example" src="data:image/png;base64,{{BASE64_TERMINAL_COMMAND}}" />
-
-
-## Base64 helper (how to embed images)
-If you need to (re)embed images as Base64:
-
-- PowerShell (Windows):
-```powershell
-# Replace path with your image
-[Convert]::ToBase64String([System.IO.File]::ReadAllBytes('C:\path\to\Select_board_arduino_ide.png'))
-```
-Copy the Base64 output and replace `{{BASE64_SELECT_BOARD_ARDUINO_IDE}}` above.
-
-```powershell
-[Convert]::ToBase64String([System.IO.File]::ReadAllBytes('C:\path\to\terminal command.png'))
-```
-Copy and replace `{{BASE64_TERMINAL_COMMAND}}` above.
-
-- Python (cross-platform):
-```python
-import base64, sys
-with open(sys.argv[1], 'rb') as f:
-    print(base64.b64encode(f.read()).decode('ascii'))
-```
-Run: `python encode.py "path/to/image.png"`, then paste the output.
-
-For convenience, you can also save your Base64 strings in files (e.g., `select_board_base64.txt`, `terminal_command_base64.txt`) and paste them into this README placeholders.
+  ![Select Arduino Board](../../../Select_board_arduino_ide.png)
 
 
 ## Operational Tips

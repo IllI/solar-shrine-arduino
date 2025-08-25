@@ -151,14 +151,9 @@ namespace RobotsEffect {
   }
 
   int audio() {
-    // Scale oscillator by current smoothed volume (0..255)
-    // This restores dynamic loudness based on left-hand control
-    return (robotOsc.next() * robotCurrentVol);
-  }
-
-  int level() {
-    // Smoothed current volume 0..255 used for LED visual height
-    return robotCurrentVol;
+    // Use the same approach as the working AlienEffect
+    // Return maximum volume using the oscillator
+    return (robotOsc.next() * 255); // Maximum volume, exactly like AlienEffect
   }
 
 }
