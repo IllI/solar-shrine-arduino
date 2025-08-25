@@ -13,9 +13,10 @@
 #include "audio_data.h"
 
 #include "DjScratch.h"
-#include "ScaleEffect.h"
-#include "RobotsEffect.h"
 #include "ThereminEffect.h"
+#include "RobotsEffect.h"
+#include "ScaleEffect.h"
+#include "MozziThereminEchoEffect.h"
 
 // =============================================================================
 // MOZZI CONFIGURATION
@@ -111,9 +112,10 @@ static float getAveragedDistance(float samples[]) {
 // =============================================================================
 enum AudioMode {
   MODE_DJ_SCRATCH = 0,
-  MODE_VOCODER_ROBOT = 1,
+  MODE_MOZZI_THEREMIN = 1,     // Moved from position 3 to position 1 (was VOCODER_ROBOT)
   MODE_MOZZI_ROBOTS = 2,
-  MODE_MOZZI_THEREMIN = 3
+  MODE_SCALE_EFFECT = 3,       // Moved from position 1 to position 3 (was MOZZI_THEREMIN)
+  MODE_MOZZI_THEREMIN_ECHO = 4 // New effect in original theremin position
 };
 
 AudioMode currentMode = MODE_DJ_SCRATCH;
@@ -203,7 +205,7 @@ void setup() {
 ISR(TIMER1_COMPB_vect) {
   if (currentMode == MODE_DJ_SCRATCH) {
     DjScratch::handleISR();
-  } else if (currentMode == MODE_VOCODER_ROBOT) {
+  } else if (currentMode == MODE_SCALE_EFFECT) {
     // In vocoder mode, we still need to feed DJ audio to the vocoder
     // but we don't output it directly - the vocoder processes it
     DjScratch::handleISR();
@@ -553,7 +555,7 @@ void loop() {
       currentLightMode = ATTRACT_MODE;
       // Reset rotation back to DJ Scratch when returning to attract after timeout
       // Ensure Mozzi is stopped before switching away from any Mozzi mode
-      if (currentMode == MODE_VOCODER_ROBOT || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_MOZZI_THEREMIN) {
+      if (currentMode == MODE_MOZZI_THEREMIN || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_SCALE_EFFECT || currentMode == MODE_MOZZI_THEREMIN_ECHO) {
         stopMozzi();
       }
       currentMode = MODE_DJ_SCRATCH;
@@ -568,16 +570,17 @@ void loop() {
       // Rising edge: ensure the current (possibly newly rotated) mode is initialized
       if (!modeInitialized) {
         // Start Mozzi if entering a Mozzi mode
-        bool isMozzi = (currentMode == MODE_VOCODER_ROBOT || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_MOZZI_THEREMIN);
+        bool isMozzi = (currentMode == MODE_MOZZI_THEREMIN || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_SCALE_EFFECT || currentMode == MODE_MOZZI_THEREMIN_ECHO);
         if (isMozzi) {
           startMozzi();
         }
         // Enter the effect for the current mode
         switch (currentMode) {
           case MODE_DJ_SCRATCH: DjScratch::enter(); break;
-          case MODE_VOCODER_ROBOT: ScaleEffect::enter(); break;
-          case MODE_MOZZI_ROBOTS: RobotsEffect::enter(); break;
           case MODE_MOZZI_THEREMIN: ThereminEffect::enter(); break;
+          case MODE_MOZZI_ROBOTS: RobotsEffect::enter(); break;
+          case MODE_SCALE_EFFECT: ScaleEffect::enter(); break;
+          case MODE_MOZZI_THEREMIN_ECHO: MozziThereminEchoEffect::enter(); break;
         }
         modeInitialized = true;
         lastModeChange = nowMs;
@@ -590,14 +593,15 @@ void loop() {
       // Disable current effect
       switch (currentMode) {
         case MODE_DJ_SCRATCH: DjScratch::exit(); break;
-        case MODE_VOCODER_ROBOT: ScaleEffect::exit(); break;
-        case MODE_MOZZI_ROBOTS: RobotsEffect::exit(); break;
         case MODE_MOZZI_THEREMIN: ThereminEffect::exit(); break;
+        case MODE_MOZZI_ROBOTS: RobotsEffect::exit(); break;
+        case MODE_SCALE_EFFECT: ScaleEffect::exit(); break;
+        case MODE_MOZZI_THEREMIN_ECHO: MozziThereminEchoEffect::exit(); break;
       }
       // Stop Mozzi to keep timers quiet while idle, regardless of next mode
       stopMozzi();
       // Rotate mode index only (no enter)
-      currentMode = (AudioMode)((currentMode + 1) % 4);
+      currentMode = (AudioMode)((currentMode + 1) % 5);
       modeInitialized = false;
       lastEffectRotationTime = nowMs;
     }
@@ -606,14 +610,14 @@ void loop() {
   prevHandsDetected = handsDetected;
 
   // Background LED update identical to modular: skip if an effect draws its own interactive frame
-  // Map modular effect names to playa modes: DJ_SCRATCH, ALIEN->MODE_VOCODER_ROBOT, MINITHEREMIN->MODE_MOZZI_THEREMIN
-  if (!((currentMode == MODE_DJ_SCRATCH || currentMode == MODE_VOCODER_ROBOT || currentMode == MODE_MOZZI_THEREMIN) && currentLightMode == INTERACTIVE_MODE)) {
+  // Map modular effect names to playa modes: DJ_SCRATCH, ALIEN->MODE_MOZZI_THEREMIN, MINITHEREMIN->MODE_MOZZI_THEREMIN_ECHO
+  if (!((currentMode == MODE_DJ_SCRATCH || currentMode == MODE_MOZZI_THEREMIN || currentMode == MODE_MOZZI_THEREMIN_ECHO) && currentLightMode == INTERACTIVE_MODE)) {
     updateLEDs(avgDistance1, avgDistance2, inRange1, inRange2, nowMs);
   }
 
   // CRITICAL: audioHook() must be called EVERY loop iteration for Mozzi
   // Only when in a Mozzi mode (even if gated silent by g_mozziHandsActive)
-  if (modeInitialized && (currentMode == MODE_VOCODER_ROBOT || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_MOZZI_THEREMIN)) {
+  if (modeInitialized && (currentMode == MODE_MOZZI_THEREMIN || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_SCALE_EFFECT || currentMode == MODE_MOZZI_THEREMIN_ECHO)) {
     // Only call when Mozzi has been started for this mode
     audioHook();
   }
@@ -621,7 +625,7 @@ void loop() {
 
   // Throttle during heavy Mozzi modes
   static unsigned long lastJsonMs = 0; bool allowJson = true;
-  if ((currentMode == MODE_VOCODER_ROBOT || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_MOZZI_THEREMIN)) {
+  if ((currentMode == MODE_SCALE_EFFECT || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_MOZZI_THEREMIN || currentMode == MODE_MOZZI_THEREMIN_ECHO)) {
     if (nowMs - lastJsonMs < 250) allowJson = false; // ~4 Hz
   }
   static bool lastHandsDetected = false; static int lastReportedModeInt = -1;
@@ -636,7 +640,7 @@ void loop() {
     doc["left_in_range"] = inRange1;
     doc["right_in_range"] = inRange2;
     const char* effectName = "dj_scratch";
-    if (currentMode == MODE_VOCODER_ROBOT) effectName = "alien";
+    if (currentMode == MODE_SCALE_EFFECT) effectName = "alien";
     else if (currentMode == MODE_MOZZI_ROBOTS) effectName = "robots";
     else if (currentMode == MODE_MOZZI_THEREMIN) effectName = "mini_theremin";
     doc["current_effect"] = effectName;
@@ -656,21 +660,24 @@ void switchToNextMode() {
     case MODE_DJ_SCRATCH:
       DjScratch::exit();
       break;
-    case MODE_VOCODER_ROBOT:
-      ScaleEffect::exit();
+    case MODE_MOZZI_THEREMIN:
+      ThereminEffect::exit();
       break;
     case MODE_MOZZI_ROBOTS:
       RobotsEffect::exit();
       break;
-    case MODE_MOZZI_THEREMIN:
-      ThereminEffect::exit();
+    case MODE_SCALE_EFFECT:
+      ScaleEffect::exit();
+      break;
+    case MODE_MOZZI_THEREMIN_ECHO:
+      MozziThereminEchoEffect::exit();
       break;
   }
 
   // Stop Mozzi if we are leaving a Mozzi mode and entering a non-Mozzi mode
-  bool wasMozzi = (previousMode == MODE_VOCODER_ROBOT || previousMode == MODE_MOZZI_ROBOTS || previousMode == MODE_MOZZI_THEREMIN);
-  currentMode = (AudioMode)((currentMode + 1) % 4);
-  bool isMozzi = (currentMode == MODE_VOCODER_ROBOT || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_MOZZI_THEREMIN);
+  bool wasMozzi = (previousMode == MODE_MOZZI_THEREMIN || previousMode == MODE_MOZZI_ROBOTS || previousMode == MODE_SCALE_EFFECT || previousMode == MODE_MOZZI_THEREMIN_ECHO);
+  currentMode = (AudioMode)((currentMode + 1) % 5);
+  bool isMozzi = (currentMode == MODE_MOZZI_THEREMIN || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_SCALE_EFFECT || currentMode == MODE_MOZZI_THEREMIN_ECHO);
 
   if (wasMozzi && !isMozzi) {
     stopMozzi();
@@ -683,14 +690,17 @@ void switchToNextMode() {
     case MODE_DJ_SCRATCH:
       DjScratch::enter();
       break;
-    case MODE_VOCODER_ROBOT:
-      ScaleEffect::enter();
+    case MODE_MOZZI_THEREMIN:
+      ThereminEffect::enter();
       break;
     case MODE_MOZZI_ROBOTS:
       RobotsEffect::enter();
       break;
-    case MODE_MOZZI_THEREMIN:
-      ThereminEffect::enter();
+    case MODE_SCALE_EFFECT:
+      ScaleEffect::enter();
+      break;
+    case MODE_MOZZI_THEREMIN_ECHO:
+      MozziThereminEchoEffect::enter();
       break;
   }
 
@@ -714,9 +724,9 @@ void updateControl() {
   
   // Update current Mozzi effect
   switch (currentMode) {
-    case MODE_VOCODER_ROBOT:
-      ScaleEffect::update(leftHand, rightHand, d1, d2);
-      // LED: Alien orb visual
+    case MODE_MOZZI_THEREMIN:
+      ThereminEffect::update(leftHand, rightHand, d1, d2);
+      // LED: Alien orb visual (theremin moved to position 2)
       updateAlienLedVisual(d1, d2);
       break;
     case MODE_MOZZI_ROBOTS:
@@ -724,9 +734,14 @@ void updateControl() {
       // LED: robots rain visual driven by envelope level
       updateRobotsLedVisual((uint8_t)constrain(RobotsEffect::level(), 0, 255));
       break;
-    case MODE_MOZZI_THEREMIN:
-      ThereminEffect::update(leftHand, rightHand, d1, d2);
-      // LED: theremin fireball sweep
+    case MODE_SCALE_EFFECT:
+      ScaleEffect::update(leftHand, rightHand, d1, d2);
+      // LED: theremin fireball sweep (scale moved to position 4)
+      updateThereminLedVisual(d1, d2);
+      break;
+    case MODE_MOZZI_THEREMIN_ECHO:
+      MozziThereminEchoEffect::update(leftHand, rightHand, d1, d2);
+      // LED: theremin fireball sweep (echo effect in original theremin position)
       updateThereminLedVisual(d1, d2);
       break;
     default:
@@ -753,12 +768,14 @@ int audioOutput() {
     return 0;
   }
   switch (currentMode) {
-    case MODE_VOCODER_ROBOT:
-      return ScaleEffect::audio();
-    case MODE_MOZZI_ROBOTS:
-      return RobotsEffect::audio();
     case MODE_MOZZI_THEREMIN:
       return ThereminEffect::audio();
+    case MODE_MOZZI_ROBOTS:
+      return RobotsEffect::audio();
+    case MODE_SCALE_EFFECT:
+      return ScaleEffect::audio();
+    case MODE_MOZZI_THEREMIN_ECHO:
+      return MozziThereminEchoEffect::audio();
     default:
       return 0; // DJ Scratch uses Timer1 ISR, not Mozzi
   }
