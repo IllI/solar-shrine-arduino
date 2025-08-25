@@ -61,6 +61,20 @@ static void updateAlienLedVisual(float dLeft, float dRight);
 static void updateThereminLedVisual(float dLeft, float dRight);
 static void updateRobotsLedVisual(uint8_t level);
 
+// ATTRACT/INTERACTIVE light mode state (ported from modular sketch)
+enum LightMode { ATTRACT_MODE, INTERACTIVE_MODE };
+static LightMode currentLightMode = ATTRACT_MODE;
+static const float ATTRACT_PERIOD = 5000.0f; // ms
+static float attractPhaseOffset = 0.0f;
+static bool usePhaseOffset = false;
+static CRGB lastLeftColor = CRGB::Yellow;
+static CRGB lastRightColor = CRGB::Yellow;
+// Helpers (exact semantics as modular)
+static CRGB getInteractiveColor(float distance);
+static CRGB getAttractColor(unsigned long currentTime);
+static void calculatePhaseOffset(CRGB currentColor);
+static void updateLEDs(float avgDistance1, float avgDistance2, bool inRange1, bool inRange2, unsigned long currentTime);
+
 #define CONTROL_RATE 128
 
 // =============================================================================
@@ -203,6 +217,62 @@ ISR(TIMER1_COMPB_vect) {
 // LED VISUALS (ported from modular sketch)
 // =============================================================================
 
+// ATTRACT/INTERACTIVE COLOR HELPERS (exact logic)
+static CRGB getInteractiveColor(float distance) {
+  if (distance < MIN_RANGE || distance > MAX_RANGE) {
+    return CRGB::Black;
+  }
+  float ratio = (distance - MIN_RANGE) / (MAX_RANGE - MIN_RANGE);
+  ratio = constrain(ratio, 0.0f, 1.0f);
+  int red = 255;
+  int green = (int)(255 * (1.0f - ratio));
+  int blue = 0;
+  return CRGB(red, green, blue);
+}
+
+static CRGB getAttractColor(unsigned long currentTime) {
+  float phase;
+  if (usePhaseOffset) {
+    phase = attractPhaseOffset + (2.0f * PI * currentTime / ATTRACT_PERIOD);
+    usePhaseOffset = false;
+  } else {
+    phase = 2.0f * PI * currentTime / ATTRACT_PERIOD;
+  }
+  float sineValue = (sin(phase) + 1.0f) / 2.0f;  // 0..1
+  int red = 255;
+  int green = (int)(255 * sineValue);
+  int blue = 0;
+  return CRGB(red, green, blue);
+}
+
+static void calculatePhaseOffset(CRGB currentColor) {
+  float greenRatio = currentColor.green / 255.0f;
+  float sineValue = 2.0f * greenRatio - 1.0f;
+  sineValue = constrain(sineValue, -1.0f, 1.0f);
+  attractPhaseOffset = asin(sineValue);
+  usePhaseOffset = true;
+}
+
+static void updateLEDs(float avgDistance1, float avgDistance2, bool inRange1, bool inRange2, unsigned long currentTime) {
+  if (currentLightMode == ATTRACT_MODE) {
+    CRGB attractColor = getAttractColor(currentTime);
+    fill_solid(leds, NUM_LEDS, attractColor);
+  } else {
+    CRGB leftColor = getInteractiveColor(avgDistance1);
+    CRGB rightColor = getInteractiveColor(avgDistance2);
+    if (inRange1) lastLeftColor = leftColor;
+    if (inRange2) lastRightColor = rightColor;
+    int halfPoint = NUM_LEDS / 2;
+    for (int i = 0; i < halfPoint; i++) {
+      leds[i] = leftColor;
+    }
+    for (int i = halfPoint; i < NUM_LEDS; i++) {
+      leds[i] = rightColor;
+    }
+  }
+  FastLED.show();
+}
+
 static void updateDJLedVisual(float dLeft, float dRight) {
   // Map right-hand distance to wave speed (closer = faster), 5..50 cm
   uint8_t speed = 60; // default
@@ -234,6 +304,11 @@ static void updateDJLedVisual(float dLeft, float dRight) {
 
   FastLED.show();
 }
+
+// =============================================================================
+// ATTRACT/INTERACTIVE COLOR HELPERS
+// =============================================================================
+// (Removed prior HSV-based helpers to match modular's exact RGB sinusoidal attract effect.)
 
 static void updateAlienLedVisual(float dLeft, float dRight) {
   static bool spatialInit = false;
@@ -454,6 +529,39 @@ void loop() {
   unsigned long nowMs = millis();
   unsigned long sinceLastHand = nowMs - lastHandDetectedTime;
 
+  // VISUAL light mode state machine (exact modular semantics)
+  static int falseDetectionCount = 0;
+  bool visualHands = handsDetected;
+  if (currentLightMode == ATTRACT_MODE && visualHands) {
+    falseDetectionCount++;
+    if (falseDetectionCount < 3) {
+      visualHands = false; // require 3 consecutive in ATTRACT before switching
+    }
+  } else {
+    falseDetectionCount = 0;
+  }
+  if (visualHands) {
+    if (currentLightMode == ATTRACT_MODE) {
+      currentLightMode = INTERACTIVE_MODE;
+    }
+    lastHandDetectedTime = nowMs;
+  } else {
+    if (currentLightMode == INTERACTIVE_MODE && (nowMs - lastHandDetectedTime) >= INTERACTIVE_TIMEOUT) {
+      CRGB transitionColor = (lastLeftColor.r + lastLeftColor.g > lastRightColor.r + lastRightColor.g)
+                               ? lastLeftColor : lastRightColor;
+      calculatePhaseOffset(transitionColor);
+      currentLightMode = ATTRACT_MODE;
+      // Reset rotation back to DJ Scratch when returning to attract after timeout
+      // Ensure Mozzi is stopped before switching away from any Mozzi mode
+      if (currentMode == MODE_VOCODER_ROBOT || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_MOZZI_THEREMIN) {
+        stopMozzi();
+      }
+      currentMode = MODE_DJ_SCRATCH;
+      modeInitialized = false;           // defer effect enter until hands return
+      lastEffectRotationTime = nowMs;    // reset rotation cadence
+    }
+  }
+
   // Modular-style rotation: only rotate effects during idle (no hands)
   if (handsDetected) {
     if (!prevHandsDetected) {
@@ -496,6 +604,12 @@ void loop() {
   }
 
   prevHandsDetected = handsDetected;
+
+  // Background LED update identical to modular: skip if an effect draws its own interactive frame
+  // Map modular effect names to playa modes: DJ_SCRATCH, ALIEN->MODE_VOCODER_ROBOT, MINITHEREMIN->MODE_MOZZI_THEREMIN
+  if (!((currentMode == MODE_DJ_SCRATCH || currentMode == MODE_VOCODER_ROBOT || currentMode == MODE_MOZZI_THEREMIN) && currentLightMode == INTERACTIVE_MODE)) {
+    updateLEDs(avgDistance1, avgDistance2, inRange1, inRange2, nowMs);
+  }
 
   // CRITICAL: audioHook() must be called EVERY loop iteration for Mozzi
   // Only when in a Mozzi mode (even if gated silent by g_mozziHandsActive)
@@ -596,6 +710,8 @@ void updateControl() {
   bool leftHand = isHandPresent(d1);
   bool rightHand = isHandPresent(d2);
   g_mozziHandsActive = (leftHand || rightHand);
+
+  // No global ATTRACT_MODE gating; each effect updates its own LEDs.
 
   // Add this for debugging
   //Serial.print("Mode: ");
