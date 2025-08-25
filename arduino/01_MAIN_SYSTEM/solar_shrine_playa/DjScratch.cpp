@@ -21,7 +21,6 @@ namespace DjScratch {
   }
 
   void enter() {
-    Serial.println(F("Entering DJ Scratch mode..."));
     pinMode(12, OUTPUT);
     TCCR1A = _BV(COM1B1) | _BV(WGM11);
     TCCR1B = _BV(WGM13) | _BV(CS10);
@@ -35,7 +34,6 @@ namespace DjScratch {
     playbackSpeed = 5;
     scratchSpeed = 1;
     isScratchMode = false;
-    Serial.println(F("Mode: DJ Scratch (PROGMEM + Timer1)"));
   }
 
   void exit() {
@@ -50,12 +48,10 @@ namespace DjScratch {
     if (leftHand) {
       if (playState == 0) {
         playState = 1;
-        Serial.println("DJ: Play");
       }
     } else {
       if (playState == 1) {
         playState = 0;
-        Serial.println("DJ: Stop");
       }
     }
 

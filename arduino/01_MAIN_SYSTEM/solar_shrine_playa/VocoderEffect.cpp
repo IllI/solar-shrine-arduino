@@ -133,7 +133,6 @@ namespace VocoderEffect {
     }
     
     vocoderActive = true;
-    Serial.println(F("Vocoder Effect: Enhanced robot voice active"));
   }
 
   void exit() {

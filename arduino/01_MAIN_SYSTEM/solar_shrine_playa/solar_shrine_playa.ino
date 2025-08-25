@@ -455,7 +455,7 @@ void loop() {
   static bool lastHandsDetected = false; static int lastReportedModeInt = -1;
   auto modeString = handsDetected ? "interactive" : "attract";
   int modeInt = handsDetected ? 1 : 0;
-  if (allowJson && (handsDetected || lastHandsDetected || (modeInt != lastReportedModeInt))) {
+  if (allowJson && handsDetected) {
     StaticJsonDocument<400> doc;
     doc["left"] = int(avgDistance1);
     doc["right"] = int(avgDistance2);
