@@ -105,6 +105,8 @@ enum AudioMode {
 AudioMode currentMode = MODE_DJ_SCRATCH;
 const unsigned long MODE_DURATION = 5000; // 5 seconds per mode
 unsigned long lastModeChange = 0;
+// Gate Mozzi audio when no hands detected
+static volatile bool g_mozziHandsActive = false;
 
 // =============================================================================
 // SENSOR SYSTEM
@@ -537,6 +539,7 @@ void updateControl() {
   float d2 = readSensor(TRIG2, ECHO2); // Right hand
   bool leftHand = isHandPresent(d1);
   bool rightHand = isHandPresent(d2);
+  g_mozziHandsActive = (leftHand || rightHand);
 
   // Add this for debugging
   //Serial.print("Mode: ");
@@ -586,6 +589,10 @@ int updateAudio() {
 }
 
 int audioOutput() {
+  // Hard gate: never output audio in Mozzi modes without hands detected
+  if (!g_mozziHandsActive) {
+    return 0;
+  }
   switch (currentMode) {
     case MODE_VOCODER_ROBOT:
       return ScaleEffect::audio();
