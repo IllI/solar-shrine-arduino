@@ -103,8 +103,15 @@ enum AudioMode {
 };
 
 AudioMode currentMode = MODE_DJ_SCRATCH;
-const unsigned long MODE_DURATION = 5000; // 5 seconds per mode
-unsigned long lastModeChange = 0;
+// Modular-style rotation/state timings
+const unsigned long INTERACTIVE_TIMEOUT = 10000; // 10s no hands -> back to attract (visual only concept)
+const unsigned long EFFECT_SWITCH_TIMEOUT = 5000; // 5s of no hands -> rotate effect
+unsigned long lastModeChange = 0; // maintained but no longer used for fixed rotation
+static unsigned long lastHandDetectedTime = 0;
+static unsigned long lastEffectRotationTime = 0;
+static bool prevHandsDetected = false;
+// Defer effect setup until hands are detected after idle rotation
+static bool modeInitialized = true;
 // Gate Mozzi audio when no hands detected
 static volatile bool g_mozziHandsActive = false;
 
@@ -168,6 +175,9 @@ void setup() {
   // Start in DJ Scratch mode
   DjScratch::enter();
   lastModeChange = millis();
+  lastHandDetectedTime = lastModeChange;
+  lastEffectRotationTime = lastModeChange;
+  modeInitialized = true;
 
   // Initialize sample buffers
   for (int i = 0; i < SAMPLES; i++) { distance1Samples[i] = MAX_RANGE + 10; distance2Samples[i] = MAX_RANGE + 10; }
@@ -401,16 +411,8 @@ static void updateRobotsLedVisual(uint8_t lvl) {
 // MAIN LOOP FUNCTION
 // =============================================================================
 void loop() {
-  // Check if it's time to switch modes
-  if (millis() - lastModeChange >= MODE_DURATION) {
-    switchToNextMode();
-  }
-  
-  // CRITICAL: audioHook() must be called EVERY loop iteration for Mozzi
-  // This is the key difference from our previous implementation
-  if (currentMode == MODE_VOCODER_ROBOT || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_MOZZI_THEREMIN) {
-    audioHook();
-  } else if (currentMode == MODE_DJ_SCRATCH) {
+  // CRITICAL: handle DJ vs Mozzi sensor cadence
+  if (currentMode == MODE_DJ_SCRATCH) {
     // Handle DJ scratch controls (Mozzi handles its own controls in updateControl)
     static unsigned long lastSensorRead = 0;
     if (millis() - lastSensorRead >= 30) {  // Read sensors every 30ms for DJ scratch
@@ -442,15 +444,69 @@ void loop() {
     lastJsonSample = millis();
   }
 
-  // Build JSON identical to modular sketch
+  // Compute current hand presence from averaged distances (used for rotation + JSON)
   float avgDistance1 = samplesInitialized ? getAveragedDistance(distance1Samples) : lastDistance1;
   float avgDistance2 = samplesInitialized ? getAveragedDistance(distance2Samples) : lastDistance2;
   bool inRange1 = (avgDistance1 >= MIN_RANGE && avgDistance1 <= MAX_RANGE);
   bool inRange2 = (avgDistance2 >= MIN_RANGE && avgDistance2 <= MAX_RANGE);
   bool handsDetected = inRange1 || inRange2;
 
+  unsigned long nowMs = millis();
+  unsigned long sinceLastHand = nowMs - lastHandDetectedTime;
+
+  // Modular-style rotation: only rotate effects during idle (no hands)
+  if (handsDetected) {
+    if (!prevHandsDetected) {
+      // Rising edge: ensure the current (possibly newly rotated) mode is initialized
+      if (!modeInitialized) {
+        // Start Mozzi if entering a Mozzi mode
+        bool isMozzi = (currentMode == MODE_VOCODER_ROBOT || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_MOZZI_THEREMIN);
+        if (isMozzi) {
+          startMozzi();
+        }
+        // Enter the effect for the current mode
+        switch (currentMode) {
+          case MODE_DJ_SCRATCH: DjScratch::enter(); break;
+          case MODE_VOCODER_ROBOT: ScaleEffect::enter(); break;
+          case MODE_MOZZI_ROBOTS: RobotsEffect::enter(); break;
+          case MODE_MOZZI_THEREMIN: ThereminEffect::enter(); break;
+        }
+        modeInitialized = true;
+        lastModeChange = nowMs;
+      }
+    }
+    lastHandDetectedTime = nowMs;
+  } else {
+    // Idle: after EFFECT_SWITCH_TIMEOUT of no hands, rotate once per window and defer setup
+    if (sinceLastHand > EFFECT_SWITCH_TIMEOUT && (nowMs - lastEffectRotationTime) >= EFFECT_SWITCH_TIMEOUT) {
+      // Disable current effect
+      switch (currentMode) {
+        case MODE_DJ_SCRATCH: DjScratch::exit(); break;
+        case MODE_VOCODER_ROBOT: ScaleEffect::exit(); break;
+        case MODE_MOZZI_ROBOTS: RobotsEffect::exit(); break;
+        case MODE_MOZZI_THEREMIN: ThereminEffect::exit(); break;
+      }
+      // Stop Mozzi to keep timers quiet while idle, regardless of next mode
+      stopMozzi();
+      // Rotate mode index only (no enter)
+      currentMode = (AudioMode)((currentMode + 1) % 4);
+      modeInitialized = false;
+      lastEffectRotationTime = nowMs;
+    }
+  }
+
+  prevHandsDetected = handsDetected;
+
+  // CRITICAL: audioHook() must be called EVERY loop iteration for Mozzi
+  // Only when in a Mozzi mode (even if gated silent by g_mozziHandsActive)
+  if (modeInitialized && (currentMode == MODE_VOCODER_ROBOT || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_MOZZI_THEREMIN)) {
+    // Only call when Mozzi has been started for this mode
+    audioHook();
+  }
+  // Build JSON identical to modular sketch
+
   // Throttle during heavy Mozzi modes
-  static unsigned long lastJsonMs = 0; unsigned long nowMs = millis(); bool allowJson = true;
+  static unsigned long lastJsonMs = 0; bool allowJson = true;
   if ((currentMode == MODE_VOCODER_ROBOT || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_MOZZI_THEREMIN)) {
     if (nowMs - lastJsonMs < 250) allowJson = false; // ~4 Hz
   }
