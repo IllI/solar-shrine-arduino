@@ -711,19 +711,6 @@ void updateControl() {
   bool rightHand = isHandPresent(d2);
   g_mozziHandsActive = (leftHand || rightHand);
 
-  // No global ATTRACT_MODE gating; each effect updates its own LEDs.
-
-  // Add this for debugging
-  //Serial.print("Mode: ");
-  //Serial.print(currentMode);
-  //Serial.print(" | Left Sensor: ");
-  //Serial.print(d1);
-  //Serial.print(" cm, Hand: ");
-  //Serial.print(leftHand);
-  //Serial.print(" | Right Sensor: ");
-  //Serial.print(d2);
-  //Serial.print(" cm, Hand: ");
-  //Serial.println(rightHand);
   
   // Update current Mozzi effect
   switch (currentMode) {
