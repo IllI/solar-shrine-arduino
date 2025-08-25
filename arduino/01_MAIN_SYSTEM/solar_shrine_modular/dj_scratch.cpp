@@ -15,28 +15,29 @@ static const int MIN_CM = 5;
 static const int MAX_CM = 50;
 
 void dj_scratch_setup() {
-  // Pin 9 and Timer2 control for DJ scratch audio
-  pinMode(9, OUTPUT);  // Use pin 9 for Timer2 PWM on Mega
+  // Pin 12 and Timer1 control disabled when Mozzi (alien effect) is active
+  // pinMode(12, OUTPUT);  // Use pin 12 for Timer1 PWM on Mega
   
-  // Timer2 PWM setup for 20kHz Fast PWM
-  TCCR2A = _BV(COM2B1) | _BV(WGM21) | _BV(WGM20); // Non-inverting mode on OC2B, Fast PWM
-  TCCR2B = _BV(CS20);                              // No prescaler
-  OCR2A = 199;                                     // 16MHz / (199 + 1) = 80kHz / 4 = 20kHz
-  OCR2B = OCR2A / 2;                               // 50% duty cycle (silence)
-  TIMSK2 = _BV(OCIE2B);                            // Enable Timer2 Compare B interrupt
+  // Timer1 PWM - disabled to avoid conflict with Mozzi
+  // TCCR1A = _BV(COM1B1) | _BV(WGM11); // Non-inverting mode on OC1B
+  // TCCR1B = _BV(WGM13) | _BV(CS10);    // Fast PWM, no prescaler
+  // ICR1 = 399;                         // 16MHz / (399 + 1) = 40kHz
+  // OCR1B = ICR1 / 2;                   // 50% duty cycle (silence)
+  TIMSK1 = _BV(OCIE1B);               // Enable Timer1 Compare B interrupt
 }
 
 void dj_scratch_disable() {
-    TIMSK2 &= ~_BV(OCIE2B); // Disable Timer2 interrupt
+    TIMSK1 &= ~_BV(OCIE1B); // Disable Timer1 interrupt
     playState = 0;
-    OCR2B = OCR2A / 2; // Set to silence
-    // Reset Timer2 to default state
-    TCCR2A = 0;
-    TCCR2B = 0;
-    pinMode(9, INPUT); // tri-state pin 9
+    // Timer1 and pin 12 control disabled when Mozzi is active
+    // OCR1B = ICR1 / 2; // Set to silence
+    // Fully release Timer1 and pin 12 so other effects can drive AUDIO_PIN 12
+    // TCCR1A = 0;
+    // TCCR1B = 0;
+    // pinMode(12, INPUT); // tri-state
 }
 
-ISR(TIMER2_COMPB_vect) {
+ISR(TIMER1_COMPB_vect) {
   sampleCounter++;
   
   uint8_t currentSpeed = isScratchMode ? 2 : playbackSpeed;
@@ -52,7 +53,7 @@ ISR(TIMER2_COMPB_vect) {
       int16_t amp = ((int16_t)sample - 128) * 4;
       amp = constrain(amp, -128, 127);
       
-      OCR2B = ((uint32_t)(amp + 128) * OCR2A) / 255;
+      OCR1B = ((uint32_t)(amp + 128) * ICR1) / 255;
       
       if (isScratchMode) {
         djSampleIndex += scratchSpeed;
@@ -64,7 +65,7 @@ ISR(TIMER2_COMPB_vect) {
       }
       
     } else {
-      OCR2B = OCR2A / 2;
+      OCR1B = ICR1 / 2;
     }
   }
 }

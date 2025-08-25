@@ -156,4 +156,9 @@ namespace RobotsEffect {
     return (robotOsc.next() * 255); // Maximum volume, exactly like AlienEffect
   }
 
+  int level() {
+    // Smoothed current volume 0..255 used for LED visual height
+    return robotCurrentVol;
+  }
+
 }

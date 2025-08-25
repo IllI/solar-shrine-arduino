@@ -40,6 +40,25 @@
 #include <tables/triangle2048_int8.h>
 #include <tables/triangle_valve_2048_int8.h>
 #include <tables/saw2048_int8.h>
+#include <math.h>
+
+// =============================================================================
+// LED SYSTEM (FastLED + LED mapping from modular sketch)
+// =============================================================================
+#define FASTLED_ALLOW_INTERRUPTS 1
+#include <FastLED.h>
+#define LED_PIN 3
+#define NUM_LEDS 120
+#define LED_TYPE WS2812B
+#define COLOR_ORDER GRB
+CRGB leds[NUM_LEDS];
+#include "led_mapping.h"
+
+// LED visual prototypes
+static void updateDJLedVisual(float dLeft, float dRight);
+static void updateAlienLedVisual(float dLeft, float dRight);
+static void updateThereminLedVisual(float dLeft, float dRight);
+static void updateRobotsLedVisual(uint8_t level);
 
 #define CONTROL_RATE 128
 
@@ -57,8 +76,6 @@ AudioMode currentMode = MODE_DJ_SCRATCH;
 const unsigned long MODE_DURATION = 5000; // 5 seconds per mode
 unsigned long lastModeChange = 0;
 
-
-
 // =============================================================================
 // SENSOR SYSTEM
 // =============================================================================
@@ -68,12 +85,6 @@ unsigned long lastModeChange = 0;
 #define ECHO2 6   // Right sensor echo
 
 // Note: DJ Scratch effect variables are now in the modular audio system section above
-
-
-
-
-
-
 
 // =============================================================================
 // SENSOR READING FUNCTIONS
@@ -110,6 +121,12 @@ void setup() {
   pinMode(TRIG2, OUTPUT);
   pinMode(ECHO2, INPUT);
   
+  // Initialize LEDs (match modular sketch)
+  FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
+  FastLED.setBrightness(150);
+  fill_solid(leds, NUM_LEDS, CRGB::Black);
+  FastLED.show();
+  
   // Initialize all effect modules
   DjScratch::setup();
   ScaleEffect::setup();
@@ -135,6 +152,204 @@ ISR(TIMER1_COMPB_vect) {
   } else {
     OCR1B = 200; // Silence when not in DJ mode
   }
+}
+
+// =============================================================================
+// LED VISUALS (ported from modular sketch)
+// =============================================================================
+
+static void updateDJLedVisual(float dLeft, float dRight) {
+  // Map right-hand distance to wave speed (closer = faster), 5..50 cm
+  uint8_t speed = 60; // default
+  if (dRight >= 5 && dRight <= 50) {
+    speed = (uint8_t)map((int)dRight, 5, 50, 160, 40);
+  }
+
+  static bool spatialInit = false;
+  static float ledX[NUM_LEDS];
+  static float ledY[NUM_LEDS];
+  if (!spatialInit) { build_spatial_map(ledX, ledY); spatialInit = true; }
+
+  uint8_t phase = beat8(speed);
+  const CRGB startColor = CRGB(48, 0, 96);    // dark purple
+  const CRGB endColor   = CRGB(0, 255, 255);  // neon blue
+
+  for (uint16_t idx = 0; idx < NUM_LEDS; ++idx) {
+    float xNorm = ledX[idx];
+    float yNorm = ledY[idx];
+    uint8_t x = (uint8_t)(xNorm * 255.0f);
+    uint8_t y = (uint8_t)(yNorm * 64.0f);
+    uint8_t s = sin8(x - phase + y);
+    uint8_t b = scale8(s, 220);
+    CRGB col = blend(startColor, endColor, s);
+    uint8_t nb = (b < 16) ? 16 : b;
+    col.nscale8_video(nb);
+    leds[idx] = col;
+  }
+
+  FastLED.show();
+}
+
+static void updateAlienLedVisual(float dLeft, float dRight) {
+  static bool spatialInit = false;
+  static float ledX[NUM_LEDS];
+  static float ledY[NUM_LEDS];
+  if (!spatialInit) { build_spatial_map(ledX, ledY); spatialInit = true; }
+
+  const uint8_t rowsL = hand_num_rows(LEFT_HAND);
+  const uint8_t rowsR = hand_num_rows(RIGHT_HAND);
+
+  auto leftSeqToColRow = [&](uint8_t seq, uint8_t &col, uint8_t &row){
+    Segment order[SEGMENT_COUNT] = { PINKY, RING, MIDDLE, INDEX, PALM, THUMB };
+    uint8_t cum[SEGMENT_COUNT]   = { 10, 22, 35, 48, 53, 60 };
+    uint8_t segIdx = 0; while (seq > cum[segIdx]) segIdx++;
+    col = segIdx;
+    uint8_t prevCum = (segIdx == 0) ? 0 : cum[segIdx - 1];
+    uint8_t offset = (uint8_t)(seq - prevCum - 1);
+    Segment seg = order[segIdx];
+    uint8_t len = segmentLength(LEFT_HAND, seg);
+    FingerDirection dir = segment_direction(LEFT_HAND, seg);
+    if (dir == TIP_TO_BASE) row = offset; else row = (uint8_t)(len - 1 - offset);
+  };
+
+  uint8_t col0L, row0L; leftSeqToColRow(31, col0L, row0L);
+
+  auto rightSeqToColRow = [&](uint8_t seq, uint8_t &col, uint8_t &row){
+    Segment order[SEGMENT_COUNT] = { THUMB, PALM, INDEX, MIDDLE, RING, PINKY };
+    uint8_t cum[SEGMENT_COUNT]   = { 7, 12, 25, 38, 50, 60 };
+    uint8_t segIdx = 0; while (seq > cum[segIdx]) segIdx++;
+    col = segIdx;
+    uint8_t prevCum = (segIdx == 0) ? 0 : cum[segIdx - 1];
+    uint8_t offset = (uint8_t)(seq - prevCum - 1);
+    Segment seg = order[segIdx];
+    uint8_t len = segmentLength(RIGHT_HAND, seg);
+    FingerDirection dir = segment_direction(RIGHT_HAND, seg);
+    if (dir == TIP_TO_BASE) row = offset; else row = (uint8_t)(len - 1 - offset);
+  };
+
+  uint8_t col0R, row0R; rightSeqToColRow(32, col0R, row0R);
+
+  auto mapRadiusGrid = [&](float dCm, uint8_t maxRows) -> uint8_t {
+    if (dCm <= 0) return 0;
+    float t = (dCm - 5.0f) / 45.0f; if (t < 0) t = 0; if (t > 1) t = 1;
+    float r = (1.0f - t) * (float)maxRows * 0.9f;
+    if (r < 1.0f) r = 1.0f; if (r > (float)maxRows) r = (float)maxRows;
+    return (uint8_t)(r + 0.5f);
+  };
+
+  const uint8_t rL_grid = mapRadiusGrid(dLeft, rowsL);
+  const uint8_t rR_grid = mapRadiusGrid(dRight, rowsR);
+
+  fill_solid(leds, NUM_LEDS, CRGB::Black);
+
+  for (uint16_t i = 0; i < NUM_LEDS; ++i) {
+    float iL = 0.0f, iR = 0.0f;
+    if (i < NUM_LEDS/2) {
+      for (uint8_t s = 1; s <= 60; ++s) {
+        uint8_t c, r; leftSeqToColRow(s, c, r);
+        int dc = (int)c - (int)col0L; int dr = (int)r - (int)row0L;
+        if ((dc*dc + dr*dr) <= (int)rL_grid*(int)rL_grid) {
+          uint16_t idx = left_seq_to_index(s); if (idx == i) { iL = 1.0f; break; }
+        }
+      }
+    } else {
+      for (uint8_t s = 1; s <= 60; ++s) {
+        uint8_t c, r; rightSeqToColRow(s, c, r);
+        int dc = (int)c - (int)col0R; int dr = (int)r - (int)row0R;
+        if ((dc*dc + dr*dr) <= (int)rR_grid*(int)rR_grid) {
+          uint16_t idx = right_seq_to_index(s); if (idx == i) { iR = 1.0f; break; }
+        }
+      }
+    }
+    uint16_t val = (uint16_t)((iL + iR) * 255.0f);
+    if (val > 255) val = 255;
+    leds[i] = (val > 6) ? CRGB(val, val, val) : CRGB::Black;
+  }
+
+  FastLED.show();
+}
+
+static void updateThereminLedVisual(float dLeft, float dRight) {
+  static bool spatialInit = false;
+  static float ledX[NUM_LEDS];
+  static float ledY[NUM_LEDS];
+  static float minX = 0.0f, maxX = 1.0f;
+  if (!spatialInit) {
+    build_spatial_map(ledX, ledY);
+    minX = 1.0f; maxX = 0.0f;
+    for (uint16_t i = 0; i < NUM_LEDS; ++i) { if (ledX[i] < minX) minX = ledX[i]; if (ledX[i] > maxX) maxX = ledX[i]; }
+    if (maxX - minX < 0.01f) { minX = 0.0f; maxX = 1.0f; }
+    spatialInit = true;
+  }
+
+  auto inRange = [](float cm) -> bool { return cm >= 5.0f && cm <= 50.0f; };
+  bool leftPresent = inRange(dLeft);
+  bool rightPresent = inRange(dRight);
+
+  float speedHz = 0.6f;
+  if (rightPresent) { float t = (dRight - 5.0f) / 45.0f; if (t < 0) t = 0; if (t > 1) t = 1; speedHz = 0.3f + (1.0f - t) * 1.5f; }
+
+  float sigma = 0.10f; uint8_t brightnessBase = 140;
+  if (leftPresent) {
+    float t = (dLeft - 5.0f) / 45.0f; if (t < 0) t = 0; if (t > 1) t = 1;
+    sigma = 0.05f + (1.0f - t) * 0.13f;
+    brightnessBase = (uint8_t)(110 + (1.0f - t) * 145.0f);
+  } else if (rightPresent) {
+    float t = (dRight - 5.0f) / 45.0f; if (t < 0) t = 0; if (t > 1) t = 1;
+    sigma = 0.06f + (1.0f - t) * 0.10f;
+    brightnessBase = (uint8_t)(100 + (1.0f - t) * 110.0f);
+  }
+
+  static unsigned long startMillis = millis();
+  float seconds = (millis() - startMillis) / 1000.0f;
+  float range = (maxX - minX);
+  float pos01 = seconds * speedHz; pos01 = pos01 - (unsigned long)pos01;
+  float centerX = minX + pos01 * range;
+
+  const CRGB rgbOrange = CRGB(255, 96, 0);
+  const CRGB rgbYellow = CRGB(255, 220, 0);
+
+  fill_solid(leds, NUM_LEDS, CRGB::Black);
+  for (uint16_t i = 0; i < NUM_LEDS; ++i) {
+    float dx = ledX[i] - centerX;
+    float nd = fabsf(dx) / sigma;
+    float atten = 1.0f / (1.0f + 1.8f * nd * nd);
+    if (atten < 0.02f) continue;
+    float a = atten; if (a > 1.0f) a = 1.0f;
+    uint8_t b = (uint8_t)constrain((int)(brightnessBase * a), 0, 255);
+    uint8_t mix = (uint8_t)constrain((int)(a * 255.0f), 0, 255);
+    CRGB col = blend(rgbOrange, rgbYellow, mix);
+    col.nscale8_video(b);
+    leds[i] = col;
+  }
+
+  FastLED.show();
+}
+
+static void updateRobotsLedVisual(uint8_t lvl) {
+  static bool spatialInit = false;
+  static float ledX[NUM_LEDS];
+  static float ledY[NUM_LEDS];
+  if (!spatialInit) { build_spatial_map(ledX, ledY); spatialInit = true; }
+
+  for (int i = 0; i < NUM_LEDS; ++i) leds[i].fadeToBlackBy(64);
+
+  CRGB gold = CRGB(255, 215, 0);
+  uint8_t rowsL = hand_num_rows(LEFT_HAND);
+  uint8_t rowsR = hand_num_rows(RIGHT_HAND);
+  uint8_t hL = map(lvl, 0, 255, 0, rowsL - 1);
+  uint8_t hR = map(lvl, 0, 255, 0, rowsR - 1);
+
+  for (uint8_t col = 0; col < hand_num_columns(); ++col) {
+    uint16_t idx = hand_xy_to_index(LEFT_HAND, col, hL);
+    if (idx != 0xFFFF) { uint8_t b = (lvl < 32) ? 32 : lvl; CRGB c = gold; c.nscale8_video(b); leds[idx] = c; }
+  }
+  for (uint8_t col = 0; col < hand_num_columns(); ++col) {
+    uint16_t idx = hand_xy_to_index(RIGHT_HAND, col, hR);
+    if (idx != 0xFFFF) { uint8_t b = (lvl < 32) ? 32 : lvl; CRGB c = gold; c.nscale8_video(b); leds[idx] = c; }
+  }
+
+  FastLED.show();
 }
 
 // =============================================================================
@@ -171,6 +386,8 @@ void loop() {
       bool rightHand = isHandPresent(d2);
       
       DjScratch::update(leftHand, rightHand, d1, d2);
+      // LED visual for DJ mode
+      updateDJLedVisual(d1, d2);
       lastSensorRead = millis();
     }
     
@@ -256,12 +473,18 @@ void updateControl() {
   switch (currentMode) {
     case MODE_VOCODER_ROBOT:
       ScaleEffect::update(leftHand, rightHand, d1, d2);
+      // LED: Alien orb visual
+      updateAlienLedVisual(d1, d2);
       break;
     case MODE_MOZZI_ROBOTS:
       RobotsEffect::update(leftHand, rightHand, d1, d2);
+      // LED: robots rain visual driven by envelope level
+      updateRobotsLedVisual((uint8_t)constrain(RobotsEffect::level(), 0, 255));
       break;
     case MODE_MOZZI_THEREMIN:
       ThereminEffect::update(leftHand, rightHand, d1, d2);
+      // LED: theremin fireball sweep
+      updateThereminLedVisual(d1, d2);
       break;
     default:
       // Should not reach here in Mozzi modes
