@@ -41,6 +41,7 @@
 #include <tables/triangle_valve_2048_int8.h>
 #include <tables/saw2048_int8.h>
 #include <math.h>
+#include <ArduinoJson.h>
 
 // =============================================================================
 // LED SYSTEM (FastLED + LED mapping from modular sketch)
@@ -61,6 +62,35 @@ static void updateThereminLedVisual(float dLeft, float dRight);
 static void updateRobotsLedVisual(uint8_t level);
 
 #define CONTROL_RATE 128
+
+// =============================================================================
+// DETECTION / AVERAGING (match modular sketch semantics)
+// =============================================================================
+const float MIN_RANGE = 5.0;   // in cm
+const float MAX_RANGE = 50.0;  // in cm
+const int SAMPLES = 5;
+static float distance1Samples[SAMPLES];
+static float distance2Samples[SAMPLES];
+static int sampleIndex = 0;
+static bool samplesInitialized = false;
+static float lastDistance1 = MAX_RANGE + 10; // raw
+static float lastDistance2 = MAX_RANGE + 10; // raw
+
+static void updateDistanceSamples(float d1, float d2) {
+  distance1Samples[sampleIndex] = d1;
+  distance2Samples[sampleIndex] = d2;
+  sampleIndex = (sampleIndex + 1) % SAMPLES;
+  if (sampleIndex == 0) samplesInitialized = true;
+}
+
+static float getAveragedDistance(float samples[]) {
+  float sum = 0; int valid = 0;
+  for (int i = 0; i < SAMPLES; i++) {
+    if (samples[i] >= (MIN_RANGE - 0.5f) && samples[i] <= MAX_RANGE) { sum += samples[i]; valid++; }
+  }
+  if (valid < 3) return MAX_RANGE + 10; // invalid
+  return sum / valid;
+}
 
 // =============================================================================
 // AUDIO MODE SYSTEM
@@ -96,7 +126,8 @@ float readSensor(int trigPin, int echoPin) {
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
   
-  long duration = pulseIn(echoPin, HIGH, 30000);
+  // Shorter timeout to avoid starving audio like modular sketch
+  long duration = pulseIn(echoPin, HIGH, 16000);
   if (duration == 0) return 999; // No echo received
   
   float distance = duration * 0.034 / 2;
@@ -112,8 +143,7 @@ bool isHandPresent(float distance) {
 // =============================================================================
 void setup() {
   Serial.begin(9600);
-  Serial.println("Solar Shrine Playa - Modular Audio Effect System");
-  Serial.println("Cycling: DJ Scratch -> Vocoder Robot -> Robots -> Theremin");
+  // JSON-only output expected by TouchDesigner; avoid non-JSON chatter
   
   // Initialize sensor pins
   pinMode(TRIG1, OUTPUT);
@@ -136,6 +166,9 @@ void setup() {
   // Start in DJ Scratch mode
   DjScratch::enter();
   lastModeChange = millis();
+
+  // Initialize sample buffers
+  for (int i = 0; i < SAMPLES; i++) { distance1Samples[i] = MAX_RANGE + 10; distance2Samples[i] = MAX_RANGE + 10; }
 }
 
 // =============================================================================
@@ -388,10 +421,58 @@ void loop() {
       DjScratch::update(leftHand, rightHand, d1, d2);
       // LED visual for DJ mode
       updateDJLedVisual(d1, d2);
+      // store raw for JSON
+      lastDistance1 = d1; lastDistance2 = d2;
+      updateDistanceSamples(d1, d2);
       lastSensorRead = millis();
     }
     
     delay(5);  // Small delay for DJ scratch mode
+  }
+
+  // Regular sensor sampling for JSON in Mozzi modes as well (lightweight cadence)
+  static unsigned long lastJsonSample = 0;
+  if (millis() - lastJsonSample >= 60) {
+    float d1 = readSensor(TRIG1, ECHO1);
+    float d2 = readSensor(TRIG2, ECHO2);
+    lastDistance1 = d1; lastDistance2 = d2;
+    updateDistanceSamples(d1, d2);
+    lastJsonSample = millis();
+  }
+
+  // Build JSON identical to modular sketch
+  float avgDistance1 = samplesInitialized ? getAveragedDistance(distance1Samples) : lastDistance1;
+  float avgDistance2 = samplesInitialized ? getAveragedDistance(distance2Samples) : lastDistance2;
+  bool inRange1 = (avgDistance1 >= MIN_RANGE && avgDistance1 <= MAX_RANGE);
+  bool inRange2 = (avgDistance2 >= MIN_RANGE && avgDistance2 <= MAX_RANGE);
+  bool handsDetected = inRange1 || inRange2;
+
+  // Throttle during heavy Mozzi modes
+  static unsigned long lastJsonMs = 0; unsigned long nowMs = millis(); bool allowJson = true;
+  if ((currentMode == MODE_VOCODER_ROBOT || currentMode == MODE_MOZZI_ROBOTS || currentMode == MODE_MOZZI_THEREMIN)) {
+    if (nowMs - lastJsonMs < 250) allowJson = false; // ~4 Hz
+  }
+  static bool lastHandsDetected = false; static int lastReportedModeInt = -1;
+  auto modeString = handsDetected ? "interactive" : "attract";
+  int modeInt = handsDetected ? 1 : 0;
+  if (allowJson && (handsDetected || lastHandsDetected || (modeInt != lastReportedModeInt))) {
+    StaticJsonDocument<400> doc;
+    doc["left"] = int(avgDistance1);
+    doc["right"] = int(avgDistance2);
+    doc["hands_detected"] = handsDetected;
+    doc["mode"] = modeString;
+    doc["left_in_range"] = inRange1;
+    doc["right_in_range"] = inRange2;
+    const char* effectName = "dj_scratch";
+    if (currentMode == MODE_VOCODER_ROBOT) effectName = "alien";
+    else if (currentMode == MODE_MOZZI_ROBOTS) effectName = "robots";
+    else if (currentMode == MODE_MOZZI_THEREMIN) effectName = "mini_theremin";
+    doc["current_effect"] = effectName;
+    doc["raw_distance1"] = lastDistance1;
+    doc["raw_distance2"] = lastDistance2;
+    serializeJson(doc, Serial);
+    Serial.println();
+    lastHandsDetected = handsDetected; lastReportedModeInt = modeInt; lastJsonMs = nowMs;
   }
 }
 
@@ -458,16 +539,16 @@ void updateControl() {
   bool rightHand = isHandPresent(d2);
 
   // Add this for debugging
-  Serial.print("Mode: ");
-  Serial.print(currentMode);
-  Serial.print(" | Left Sensor: ");
-  Serial.print(d1);
-  Serial.print(" cm, Hand: ");
-  Serial.print(leftHand);
-  Serial.print(" | Right Sensor: ");
-  Serial.print(d2);
-  Serial.print(" cm, Hand: ");
-  Serial.println(rightHand);
+  //Serial.print("Mode: ");
+  //Serial.print(currentMode);
+  //Serial.print(" | Left Sensor: ");
+  //Serial.print(d1);
+  //Serial.print(" cm, Hand: ");
+  //Serial.print(leftHand);
+  //Serial.print(" | Right Sensor: ");
+  //Serial.print(d2);
+  //Serial.print(" cm, Hand: ");
+  //Serial.println(rightHand);
   
   // Update current Mozzi effect
   switch (currentMode) {
