@@ -5,6 +5,7 @@
 #include <tables/sin2048_int8.h>
 #include <RollingAverage.h>
 #include <ControlDelay.h>
+#include <MozziGuts.h>
 
 namespace MozziThereminEchoEffect {
 
@@ -86,12 +87,10 @@ namespace MozziThereminEchoEffect {
       return 0;
     }
     
-    // Use the better-sounding fromAlmostNBit implementation with high amplification
-    // Convert to simple oscillator * volume pattern as required by guide
-    int sample = 24 * ((int)aSin0.next() + aSin1.next() + (aSin2.next() >> 1) + (aSin3.next() >> 2));
-    
-    // Apply maximum volume (255) as per guide
-    return (sample * 255) >> 8;
+    // RESTORE ORIGINAL WORKING AUDIO PROCESSING from mozzi_theremin_echo prototype
+    // This is the exact audio processing that makes the effect sound good!
+    // The main system's audioOutput() will apply MonoOutput::fromAlmostNBit(14, ...) scaling
+    return 24*((int)aSin0.next()+aSin1.next()+(aSin2.next()>>1)+(aSin3.next()>>2));
   }
 
 }
