@@ -610,8 +610,8 @@ void loop() {
     bool leftHand = isHandPresent(d1);
     bool rightHand = isHandPresent(d2);
     bool handsDetected = (leftHand || rightHand);
-    
-    StaticJsonDocument<400> doc;
+    if (handsDetected) {
+      StaticJsonDocument<400> doc;
     doc["left"] = int(d1);
     doc["right"] = int(d2);
     doc["hands_detected"] = handsDetected;
@@ -632,6 +632,9 @@ void loop() {
     serializeJson(doc, Serial);
     Serial.println();
     lastJsonMs = millis();
+    lastModeChange = millis();
+    }
+    
   }
 }
 
