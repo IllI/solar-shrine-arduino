@@ -262,26 +262,45 @@ static void updateLEDs(float avgDistance1, float avgDistance2, bool inRange1, bo
 }
 
 static void updateDJLedVisual(float dLeft, float dRight) {
-  // Map right-hand distance to wave speed (closer = faster), 5..50 cm
-  uint8_t speed = 60; // default
+  // Map right-hand distance to wave speed (closer = faster)
+  // Use 5..50 cm range
+  uint8_t speed = 60; // default BPM-ish
   if (dRight >= 5 && dRight <= 50) {
-    speed = (uint8_t)map((int)dRight, 5, 50, 160, 40);
+    speed = (uint8_t)map((int)dRight, 5, 50, 160, 40); // close->fast
   }
 
-  static bool spatialInit = false;
-  static float ledX[NUM_LEDS];
-  static float ledY[NUM_LEDS];
-  if (!spatialInit) { build_spatial_map(ledX, ledY); spatialInit = true; }
+  // Build traversal path once to follow physical LED order
+  static bool pathInit = false;
+  static uint16_t path[NUM_LEDS];
+  static uint16_t pathLen = 0;
+  if (!pathInit) {
+    build_default_traversal(path, pathLen);
+    pathInit = true;
+  }
 
+  // Wave phase 0..255 advances by beat8
   uint8_t phase = beat8(speed);
+  const uint8_t wavelength = 20; // LEDs per cycle
+
+  // Colors
   const CRGB startColor = CRGB(48, 0, 96);    // dark purple
   const CRGB endColor   = CRGB(0, 255, 255);  // neon blue
 
+  // Optional: true 2D spatial wave using normalized coordinates
+  static bool spatialInit = false;
+  static float ledX[NUM_LEDS];
+  static float ledY[NUM_LEDS];
+  if (!spatialInit) {
+    build_spatial_map(ledX, ledY);
+    spatialInit = true;
+  }
+
+  // Render: wave moves left->right using x, modulated by y for slight vertical phase
   for (uint16_t idx = 0; idx < NUM_LEDS; ++idx) {
-    float xNorm = ledX[idx];
-    float yNorm = ledY[idx];
+    float xNorm = ledX[idx];           // 0..1 left->right
+    float yNorm = ledY[idx];           // 0..1 base->tip
     uint8_t x = (uint8_t)(xNorm * 255.0f);
-    uint8_t y = (uint8_t)(yNorm * 64.0f);
+    uint8_t y = (uint8_t)(yNorm * 64.0f); // small vertical phase
     uint8_t s = sin8(x - phase + y);
     uint8_t b = scale8(s, 220);
     CRGB col = blend(startColor, endColor, s);
@@ -290,7 +309,7 @@ static void updateDJLedVisual(float dLeft, float dRight) {
     leds[idx] = col;
   }
 
-  FastLED.show();
+  FastLED.show();  // Restored for LED effects
 }
 
 // =============================================================================
