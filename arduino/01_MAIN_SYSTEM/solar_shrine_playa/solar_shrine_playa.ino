@@ -129,6 +129,10 @@ const unsigned long ATTRACT_RETURN_TIMEOUT = 10000; // 10 seconds idle -> attrac
 static volatile bool g_mozziHandsActive = false;
 static volatile bool hasRotated = false;
 
+// Audio kill function for pin 12
+// This function silences the audio by stopping the PWM output on pin 12
+// by setting the Timer1 compare register to 0. It is specific to AVR boards.
+
 // =============================================================================
 // SENSOR SYSTEM
 // =============================================================================
@@ -509,6 +513,23 @@ void setupDJScratch() {
   TIMSK1 = _BV(OCIE1B);               // Enable Timer1 Compare B interrupt
 }
 
+void silenceAudioPin12() {
+  // CRITICAL: Complete audio silence for ATTRACT_MODE
+OCR1B = 0;
+  // Detach any PWM/LEDC channels from pin 12
+  // ledcDetach(12);
+  
+  // // Set pin 12 to LOW output to ensure complete silence
+  // pinMode(12, OUTPUT);
+  // digitalWrite(12, LOW);
+  
+  // // Also ensure pin 13 (Mozzi low pin) is silent
+  // pinMode(13, OUTPUT);
+  // digitalWrite(13, LOW);
+  
+  // delay(5);  // Brief settling time
+}
+
 
 
 // =============================================================================
@@ -547,6 +568,8 @@ void loop() {
       // Switch to DJ Scratch when hands detected
       switchToDJScratch();
     } else {
+      // Ensure complete audio silence when no hands detected in attract mode
+      silenceAudioPin12();
       // Show attract LED visual
       updateAttractLedVisual();
     }
@@ -713,6 +736,10 @@ void switchToAttractMode() {
   
   // Switch to attract mode (silent)
   currentMode = MODE_ATTRACT;
+  
+  // Ensure complete audio silence when entering attract mode
+  silenceAudioPin12();
+  
   hasRotated = false; // Reset rotation flag
   lastModeChange = millis();
 }
@@ -801,6 +828,7 @@ AudioOutput_t audioOutput() {
       break;
     case MODE_ATTRACT:
       // Attract mode is silent
+      silenceAudioPin12();
       rawSample = 0;
       break;
     default:
