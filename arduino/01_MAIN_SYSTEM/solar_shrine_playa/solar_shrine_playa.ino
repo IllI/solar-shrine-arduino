@@ -3,6 +3,7 @@
  Cycles between DJ Scratch, Detuned Oscillator, Mini Theremin, and Theremin Echo every 10 seconds
  
  Simplified rotation sequence (like mozzi_theremin_echo prototype):
+ - Attract Mode: Silent audio with LED attract visual (initial state, timeout return)
  - DJ Scratch: PROGMEM audio playback with purple/blue wave LED visual
  - Detuned Oscillator ("robots"): Dual sawtooth synthesis with gold rain LED visual
  - Mini Theremin: Single oscillator with alien orb LED visual
@@ -62,19 +63,19 @@ static void updateAlienLedVisual(float dLeft, float dRight);
 static void updateThereminLedVisual(float dLeft, float dRight);
 static void updateRobotsLedVisual(uint8_t level);
 
-// ATTRACT/INTERACTIVE light mode state (ported from modular sketch)
-enum LightMode { ATTRACT_MODE, INTERACTIVE_MODE };
-static LightMode currentLightMode = ATTRACT_MODE;
-static const float ATTRACT_PERIOD = 5000.0f; // ms
-static float attractPhaseOffset = 0.0f;
-static bool usePhaseOffset = false;
-static CRGB lastLeftColor = CRGB::Yellow;
-static CRGB lastRightColor = CRGB::Yellow;
-// Helpers (exact semantics as modular)
-static CRGB getInteractiveColor(float distance);
-static CRGB getAttractColor(unsigned long currentTime);
-static void calculatePhaseOffset(CRGB currentColor);
-static void updateLEDs(float avgDistance1, float avgDistance2, bool inRange1, bool inRange2, unsigned long currentTime);
+// ATTRACT LED VISUAL (ported from modular sketch)
+static void updateAttractLedVisual() {
+  const float ATTRACT_PERIOD = 5000.0f; // ms
+  float phase = 2.0f * PI * millis() / ATTRACT_PERIOD;
+  float sineValue = (sin(phase) + 1.0f) / 2.0f;  // 0..1
+  int red = 255;
+  int green = (int)(255 * sineValue);
+  int blue = 0;
+  CRGB attractColor = CRGB(red, green, blue);
+  
+  fill_solid(leds, NUM_LEDS, attractColor);
+  FastLED.show();
+}
 
 #define CONTROL_RATE 128
 
@@ -108,21 +109,25 @@ static float getAveragedDistance(float samples[]) {
 }
 
 // =============================================================================
-// AUDIO MODE SYSTEM - Simple rotation like working mozzi_theremin_echo prototype
+// AUDIO MODE SYSTEM - Attract mode added but separate from rotation
 // =============================================================================
 enum AudioMode {
-  MODE_DJ_SCRATCH = 0,           // DJ Scratch with purple/blue wave LED visual
-  MODE_MOZZI_ROBOTS = 1,         // Detuned Oscillator ("robots") with gold rain LED visual
-  MODE_MOZZI_THEREMIN = 2,       // Mini Theremin with alien orb LED visual
-  MODE_MOZZI_THEREMIN_ECHO = 3   // Theremin Echo with fireball sweep LED visual
+  MODE_ATTRACT = 0,              // Silent attract mode (not part of rotation)
+  MODE_DJ_SCRATCH = 1,           // DJ Scratch with purple/blue wave LED visual
+  MODE_MOZZI_ROBOTS = 2,         // Detuned Oscillator ("robots") with gold rain LED visual
+  MODE_MOZZI_THEREMIN = 3,       // Mini Theremin with alien orb LED visual
+  MODE_MOZZI_THEREMIN_ECHO = 4   // Theremin Echo with fireball sweep LED visual
 };
 
-AudioMode currentMode = MODE_DJ_SCRATCH;
+AudioMode currentMode = MODE_ATTRACT; // Start in attract mode
 // Simple rotation timing like mozzi_theremin_echo
 static unsigned long lastModeChange = 0;
+static unsigned long attractModeTimeout = 0;
 const unsigned long MODE_DURATION = 10000; // 10 seconds per mode (like experimental prototype)
+const unsigned long ATTRACT_RETURN_TIMEOUT = 10000; // 10 seconds idle -> attract
 // Gate Mozzi audio when no hands detected
 static volatile bool g_mozziHandsActive = false;
+static volatile bool hasRotated = false;
 
 // =============================================================================
 // SENSOR SYSTEM
@@ -131,8 +136,6 @@ static volatile bool g_mozziHandsActive = false;
 #define ECHO1 11  // Left sensor echo
 #define TRIG2 5   // Right sensor trigger
 #define ECHO2 6   // Right sensor echo
-
-// Note: DJ Scratch effect variables are now in the modular audio system section above
 
 // =============================================================================
 // SENSOR READING FUNCTIONS
@@ -181,10 +184,10 @@ void setup() {
   ThereminEffect::setup();
   // Note: MozziThereminEchoEffect setup handled in enter() function
   
-  // Start in DJ Scratch mode (like mozzi_theremin_echo prototype)
-  setupDJScratch();
-  DjScratch::enter();
+  // Start in attract mode - no audio setup needed
+  currentMode = MODE_ATTRACT;
   lastModeChange = millis();
+  attractModeTimeout = millis();
 
   // Initialize sample buffers
   for (int i = 0; i < SAMPLES; i++) { distance1Samples[i] = MAX_RANGE + 10; distance2Samples[i] = MAX_RANGE + 10; }
@@ -204,63 +207,6 @@ ISR(TIMER1_COMPB_vect) {
 // =============================================================================
 // LED VISUALS (ported from modular sketch)
 // =============================================================================
-
-// ATTRACT/INTERACTIVE COLOR HELPERS (exact logic)
-static CRGB getInteractiveColor(float distance) {
-  if (distance < MIN_RANGE || distance > MAX_RANGE) {
-    return CRGB::Black;
-  }
-  float ratio = (distance - MIN_RANGE) / (MAX_RANGE - MIN_RANGE);
-  ratio = constrain(ratio, 0.0f, 1.0f);
-  int red = 255;
-  int green = (int)(255 * (1.0f - ratio));
-  int blue = 0;
-  return CRGB(red, green, blue);
-}
-
-static CRGB getAttractColor(unsigned long currentTime) {
-  float phase;
-  if (usePhaseOffset) {
-    phase = attractPhaseOffset + (2.0f * PI * currentTime / ATTRACT_PERIOD);
-    usePhaseOffset = false;
-  } else {
-    phase = 2.0f * PI * currentTime / ATTRACT_PERIOD;
-  }
-  float sineValue = (sin(phase) + 1.0f) / 2.0f;  // 0..1
-  int red = 255;
-  int green = (int)(255 * sineValue);
-  int blue = 0;
-  return CRGB(red, green, blue);
-}
-
-static void calculatePhaseOffset(CRGB currentColor) {
-  float greenRatio = currentColor.green / 255.0f;
-  float sineValue = 2.0f * greenRatio - 1.0f;
-  sineValue = constrain(sineValue, -1.0f, 1.0f);
-  attractPhaseOffset = asin(sineValue);
-  usePhaseOffset = true;
-}
-
-static void updateLEDs(float avgDistance1, float avgDistance2, bool inRange1, bool inRange2, unsigned long currentTime) {
-  if (currentLightMode == ATTRACT_MODE) {
-    CRGB attractColor = getAttractColor(currentTime);
-    fill_solid(leds, NUM_LEDS, attractColor);
-  } else {
-    CRGB leftColor = getInteractiveColor(avgDistance1);
-    CRGB rightColor = getInteractiveColor(avgDistance2);
-    if (inRange1) lastLeftColor = leftColor;
-    if (inRange2) lastRightColor = rightColor;
-    int halfPoint = NUM_LEDS / 2;
-    for (int i = 0; i < halfPoint; i++) {
-      leds[i] = leftColor;
-    }
-    for (int i = halfPoint; i < NUM_LEDS; i++) {
-      leds[i] = rightColor;
-    }
-  }
-  FastLED.show();
-}
-
 static void updateDJLedVisual(float dLeft, float dRight) {
   // Map right-hand distance to wave speed (closer = faster)
   // Use 5..50 cm range
@@ -311,11 +257,6 @@ static void updateDJLedVisual(float dLeft, float dRight) {
 
   FastLED.show();  // Restored for LED effects
 }
-
-// =============================================================================
-// ATTRACT/INTERACTIVE COLOR HELPERS
-// =============================================================================
-// (Removed prior HSV-based helpers to match modular's exact RGB sinusoidal attract effect.)
 
 static void updateAlienLedVisual(float dLeft, float dRight) {
   static bool spatialInit = false;
@@ -571,13 +512,20 @@ void setupDJScratch() {
 
 
 // =============================================================================
-// MAIN LOOP FUNCTION - Exact same simple pattern as working mozzi_theremin_echo
+// MAIN LOOP FUNCTION - Modified to handle attract mode properly
 // =============================================================================
 void loop() {
   // EXACT same simple rotation pattern as working mozzi_theremin_echo prototype
   // Check for mode switching every 10 seconds
-  if (millis() - lastModeChange >= MODE_DURATION) {
+  if (millis() - lastModeChange >= MODE_DURATION && !hasRotated) {
     switchToNextMode();
+    hasRotated = true;
+    attractModeTimeout = millis();
+  }
+  if (hasRotated && millis() - attractModeTimeout >= ATTRACT_RETURN_TIMEOUT){
+    if (currentMode != MODE_ATTRACT) {
+      switchToAttractMode();
+    }
   }
   
   // CRITICAL: audioHook() must be called EVERY loop iteration for Mozzi
@@ -585,8 +533,28 @@ void loop() {
     audioHook();
   }
   
-  // Handle DJ scratch controls when in DJ mode (exactly like prototype)
-  if (currentMode == MODE_DJ_SCRATCH) {
+  // Handle mode-specific updates
+  if (currentMode == MODE_ATTRACT) {
+    // Attract mode - check for hands and show attract visual
+    float d1 = readSensor(TRIG1, ECHO1);
+    float d2 = readSensor(TRIG2, ECHO2);
+    
+    bool leftHand = isHandPresent(d1);
+    bool rightHand = isHandPresent(d2);
+    bool handsDetected = (leftHand || rightHand);
+    
+    if (handsDetected) {
+      // Switch to DJ Scratch when hands detected
+      switchToDJScratch();
+    } else {
+      // Show attract LED visual
+      updateAttractLedVisual();
+    }
+    
+    // Simple delay like prototype
+    delay(30);
+  } else if (currentMode == MODE_DJ_SCRATCH) {
+    // Handle DJ scratch controls when in DJ mode (exactly like prototype)
     float d1 = readSensor(TRIG1, ECHO1);
     float d2 = readSensor(TRIG2, ECHO2);
     
@@ -601,8 +569,7 @@ void loop() {
     // Simple delay like prototype
     delay(30);
   }
-  
-  // Simple JSON output (restored without complex throttling)
+
   static unsigned long lastJsonMs = 0;
   if (millis() - lastJsonMs > 250) { // 4Hz JSON output
     float d1 = readSensor(TRIG1, ECHO1);
@@ -612,27 +579,31 @@ void loop() {
     bool handsDetected = (leftHand || rightHand);
     if (handsDetected) {
       StaticJsonDocument<400> doc;
-    doc["left"] = int(d1);
-    doc["right"] = int(d2);
-    doc["hands_detected"] = handsDetected;
-    doc["mode"] = handsDetected ? "interactive" : "attract";
-    doc["left_in_range"] = leftHand;
-    doc["right_in_range"] = rightHand;
-    
-    // Current effect name
-    const char* effectName = "dj_scratch";
-    if (currentMode == MODE_MOZZI_ROBOTS) effectName = "robots";
-    else if (currentMode == MODE_MOZZI_THEREMIN) effectName = "mini_theremin";
-    else if (currentMode == MODE_MOZZI_THEREMIN_ECHO) effectName = "theremin_echo";
-    doc["current_effect"] = effectName;
-    
-    doc["raw_distance1"] = d1;
-    doc["raw_distance2"] = d2;
-    
-    serializeJson(doc, Serial);
-    Serial.println();
-    lastJsonMs = millis();
-    lastModeChange = millis();
+      doc["left"] = int(d1);
+      doc["right"] = int(d2);
+      doc["hands_detected"] = handsDetected;
+      doc["mode"] = (currentMode == MODE_ATTRACT) ? "attract" : "interactive";
+      doc["left_in_range"] = leftHand;
+      doc["right_in_range"] = rightHand;
+      
+      // Current effect name
+      const char* effectName = "attract";
+      if (currentMode == MODE_DJ_SCRATCH) effectName = "dj_scratch";
+      else if (currentMode == MODE_MOZZI_ROBOTS) effectName = "robots";
+      else if (currentMode == MODE_MOZZI_THEREMIN) effectName = "mini_theremin";
+      else if (currentMode == MODE_MOZZI_THEREMIN_ECHO) effectName = "theremin_echo";
+      doc["current_effect"] = effectName;
+      
+      doc["raw_distance1"] = d1;
+      doc["raw_distance2"] = d2;
+      
+      serializeJson(doc, Serial);
+      Serial.println();
+      lastJsonMs = millis();
+      lastModeChange = millis();
+      if (hasRotated) {
+        hasRotated = false;
+      }
     }
     
   }
@@ -640,6 +611,11 @@ void loop() {
 
 void switchToNextMode() {
   AudioMode previousMode = currentMode;
+
+  // Don't rotate from attract mode - attract only exits when hands detected
+  if (currentMode == MODE_ATTRACT) {
+    return;
+  }
 
   // Hardware-Isolated Mode Teardown (like mozzi_theremin_echo)
   // CRITICAL: Complete hardware teardown before switching modes
@@ -660,10 +636,30 @@ void switchToNextMode() {
       MozziThereminEchoEffect::exit();
       disableAllMozziModes();
       break;
+    case MODE_ATTRACT:
+      // No cleanup needed for attract
+      break;
   }
 
-  // Switch to next mode (simplified 4-mode rotation)
-  currentMode = (AudioMode)((currentMode + 1) % 4);
+  // Switch to next interactive mode (skip attract in rotation)
+  // Cycle through modes 1-4 only
+  switch (currentMode) {
+    case MODE_DJ_SCRATCH:
+      currentMode = MODE_MOZZI_ROBOTS;
+      break;
+    case MODE_MOZZI_ROBOTS:
+      currentMode = MODE_MOZZI_THEREMIN;
+      break;
+    case MODE_MOZZI_THEREMIN:
+      currentMode = MODE_MOZZI_THEREMIN_ECHO;
+      break;
+    case MODE_MOZZI_THEREMIN_ECHO:
+      currentMode = MODE_DJ_SCRATCH; // Loop back to start
+      break;
+    default:
+      currentMode = MODE_DJ_SCRATCH;
+      break;
+  }
   
   // Hardware-Isolated Mode Setup (immediate initialization like working prototype)
   switch (currentMode) {
@@ -683,8 +679,58 @@ void switchToNextMode() {
       setupMozziForCurrentMode();
       MozziThereminEchoEffect::enter();
       break;
+    case MODE_ATTRACT:
+      // No setup needed for attract
+      break;
   }
   
+  lastModeChange = millis();
+}
+
+void switchToAttractMode() {
+  // Clean exit from current mode
+  switch (currentMode) {
+    case MODE_DJ_SCRATCH:
+      DjScratch::exit();
+      disableDJScratch();
+      break;
+    case MODE_MOZZI_ROBOTS:
+      DetunedOscillatorEffect::exit();
+      disableAllMozziModes();
+      break;
+    case MODE_MOZZI_THEREMIN:
+      ThereminEffect::exit();
+      disableAllMozziModes();
+      break;
+    case MODE_MOZZI_THEREMIN_ECHO:
+      MozziThereminEchoEffect::exit();
+      disableAllMozziModes();
+      break;
+    case MODE_ATTRACT:
+      // Already in attract
+      return;
+  }
+  
+  // Switch to attract mode (silent)
+  currentMode = MODE_ATTRACT;
+  hasRotated = false; // Reset rotation flag
+  lastModeChange = millis();
+}
+
+void switchToDJScratch() {
+  // Only switch if not already in DJ mode
+  if (currentMode == MODE_DJ_SCRATCH) {
+    return;
+  }
+  
+  // Clean exit from attract mode (no audio cleanup needed)
+  currentMode = MODE_DJ_SCRATCH;
+  
+  // Setup DJ Scratch
+  setupDJScratch();
+  DjScratch::enter();
+  
+  hasRotated = false; // Reset rotation flag
   lastModeChange = millis();
 }
 
@@ -717,15 +763,10 @@ void updateControl() {
       updateThereminLedVisual(d1, d2);
       break;
     default:
-      // DJ Scratch mode doesn't use updateControl - handled in main loop
+      // DJ Scratch and Attract modes don't use updateControl - handled in main loop
       break;
   }
 }
-
-// =============================================================================
-// INDIVIDUAL EFFECT UPDATE FUNCTIONS
-// =============================================================================
-
 
 // =============================================================================
 // MOZZI AUDIO OUTPUT FUNCTION (Only for Mozzi modes)
@@ -757,6 +798,10 @@ AudioOutput_t audioOutput() {
       } else {
         rawSample = MozziThereminEchoEffect::audio();
       }
+      break;
+    case MODE_ATTRACT:
+      // Attract mode is silent
+      rawSample = 0;
       break;
     default:
       rawSample = 0; // DJ Scratch uses Timer1 ISR, not Mozzi
